@@ -24,7 +24,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.fragment.findNavController
 import com.animerec.app.R
 import com.animerec.app.data.Resource
-import com.animerec.app.recommendation.RecommendationEngine
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.yuyakaido.android.cardstackview.CardStackLayoutManager
@@ -228,10 +227,13 @@ class HomeFragment : Fragment(), CardStackListener {
         
         when (direction) {
             Direction.Right -> {
-                // Add to watchlist / readlist
-                viewModel.addToWatchlist(swipedItem)
-                val listName = if (swipedItem.type == com.animerec.app.models.ContentType.ANIME) "watchlist" else "readlist"
-                Toast.makeText(requireContext(), "Added to $listName", Toast.LENGTH_SHORT).show()
+                // Check user preferences for auto-adding to MAL
+                val settingsPrefs = requireContext().getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
+                if (settingsPrefs.getBoolean("pref_auto_add_mal", true)) {
+                    val status = settingsPrefs.getString("pref_watchlist_status", "plan_to_watch") ?: "plan_to_watch"
+                    viewModel.addToWatchlist(swipedItem, status)
+                    Toast.makeText(requireContext(), "Added to watchlist", Toast.LENGTH_SHORT).show()
+                }
             }
             Direction.Left -> {
                 // Mark as not interested

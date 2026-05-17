@@ -16,7 +16,10 @@ import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavController
 import androidx.navigation.NavOptions
@@ -42,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appBarConfiguration: AppBarConfiguration
     private lateinit var bottomNav: BottomNavigationView
     private lateinit var authViewModel: AuthViewModel
+    private lateinit var binding: com.animerec.app.databinding.ActivityMainBinding
 
     /** Suppresses bottom nav listener from triggering navigation during programmatic selection */
     private var suppressBottomNavListener = false
@@ -72,22 +76,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Ensure content does not draw behind the status bar
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        // Enable edge-to-edge
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // Sync system bars with applied theme 
         syncSystemBarColors()
 
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        binding = com.animerec.app.databinding.ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-        // Fix cold-start spacing bug: force the system to re-dispatch window
-        // insets after the first layout pass so the UI lays out correctly on
-        // the very first frame.  This avoids toggling setDecorFitsSystemWindows
-        // (which triggers an activity recreation and crash-loops the splash).
-        window.decorView.post {
-            window.decorView.requestLayout()
-            window.decorView.requestApplyInsets()
+        setSupportActionBar(binding.toolbar)
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            binding.appBar.updatePadding(top = systemBars.top)
+            //binding.bottomNavigation.updatePadding(bottom = systemBars.bottom)
+            insets
         }
 
         // Initialize view model

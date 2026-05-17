@@ -2,7 +2,7 @@
 <!-- Author: Shuvam Banerji Seal | AnimeMate | MIT License -->
 <resources>
     <!-- Base application theme (Material3) — Light / Coffee-Cream -->
-    <style name="Theme.AnimeRec" parent="Theme.Material3.Light">
+    <style name="Theme.AnimeRec" parent="Theme.Material3.Light.NoActionBar">
         <!-- Primary brand color — coffee brown -->
         <item name="colorPrimary">@color/purple_500</item>
         <item name="colorPrimaryContainer">@color/surface_variant_light</item>

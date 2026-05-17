@@ -308,14 +308,15 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
     /**
      * Add to watchlist when swiped right.
      * Records a LIKE interaction AND updates the MAL list status.
+     * @param status The MAL status to set (e.g., "plan_to_watch", "watching").
      */
-    fun addToWatchlist(content: AnimeContent) {
+    fun addToWatchlist(content: AnimeContent, status: String) {
         recordInteraction(content, RecommendationEngine.InteractionType.LIKE)
         viewModelScope.launch {
             try {
                 when (content.type) {
-                    ContentType.ANIME -> repository.updateAnimeStatus(content.id, "plan_to_watch")
-                    ContentType.MANGA, ContentType.NOVEL -> repository.updateMangaStatus(content.id, "plan_to_read")
+                    ContentType.ANIME -> repository.updateAnimeStatus(content.id, status)
+                    ContentType.MANGA, ContentType.NOVEL -> repository.updateMangaStatus(content.id, status)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to add to watchlist on MAL", e)

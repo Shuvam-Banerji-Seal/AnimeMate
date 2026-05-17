@@ -2,7 +2,7 @@
 <!-- Author: Shuvam Banerji Seal | AnimeMate | MIT License -->
 <resources>
     <!-- Dark theme overrides — Warm tones -->
-    <style name="Theme.AnimeRec" parent="Theme.Material3.Dark">
+    <style name="Theme.AnimeRec" parent="Theme.Material3.Dark.NoActionBar">
         <!-- Primary brand color — warm amber for dark -->
         <item name="colorPrimary">@color/purple_200</item>
         <item name="colorPrimaryContainer">#FF5D4037</item>

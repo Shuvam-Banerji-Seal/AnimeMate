@@ -62,6 +62,9 @@ class ProfileFragment : Fragment() {
     private var donateUpiButton: Button? = null
     private var developerWebsiteButton: Button? = null
     private var darkModeSwitch: MaterialSwitch? = null
+    private var autoAddWatchlistSwitch: MaterialSwitch? = null
+    private var watchlistStatusAutoComplete: android.widget.AutoCompleteTextView? = null
+    private var watchlistStatusContainer: View? = null
     private var loadingIndicator: ProgressBar? = null
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -97,6 +100,9 @@ class ProfileFragment : Fragment() {
         donateUpiButton = view.findViewById(R.id.donateUpiButton)
         developerWebsiteButton = view.findViewById(R.id.developerWebsiteButton)
         darkModeSwitch = view.findViewById(R.id.darkModeSwitch)
+        autoAddWatchlistSwitch = view.findViewById(R.id.autoAddWatchlistSwitch)
+        watchlistStatusAutoComplete = view.findViewById(R.id.watchlistStatusAutoComplete)
+        watchlistStatusContainer = view.findViewById(R.id.watchlistStatusContainer)
         loadingIndicator = view.findViewById(R.id.loadingIndicator)
 
         // Set up dark mode switch
@@ -113,6 +119,36 @@ class ProfileFragment : Fragment() {
             ErrorLogManager.logEvent(TAG, "THEME", "Dark mode toggled: isChecked=$isChecked")
             themePrefs.edit().putInt("night_mode", nightMode).apply()
             AppCompatDelegate.setDefaultNightMode(nightMode)
+        }
+
+        val settingsPrefs = requireContext().getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
+        
+        // Auto-add switch
+        val autoAddEnabled = settingsPrefs.getBoolean("pref_auto_add_mal", true)
+        autoAddWatchlistSwitch?.isChecked = autoAddEnabled
+        watchlistStatusContainer?.visibility = if (autoAddEnabled) View.VISIBLE else View.GONE
+        
+        autoAddWatchlistSwitch?.setOnCheckedChangeListener { _, isChecked ->
+            settingsPrefs.edit().putBoolean("pref_auto_add_mal", isChecked).apply()
+            watchlistStatusContainer?.visibility = if (isChecked) View.VISIBLE else View.GONE
+            ErrorLogManager.logEvent(TAG, "SETTINGS", "Auto-add toggled: $isChecked")
+        }
+        
+        // Watchlist status dropdown
+        val statusLabels = arrayOf("Plan to Watch", "Watching", "On Hold")
+        val statusValues = arrayOf("plan_to_watch", "watching", "on_hold")
+        
+        val adapter = android.widget.ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, statusLabels)
+        watchlistStatusAutoComplete?.setAdapter(adapter)
+        
+        val currentStatusValue = settingsPrefs.getString("pref_watchlist_status", "plan_to_watch")
+        val currentIndex = statusValues.indexOf(currentStatusValue).coerceAtLeast(0)
+        watchlistStatusAutoComplete?.setText(statusLabels[currentIndex], false)
+        
+        watchlistStatusAutoComplete?.setOnItemClickListener { _, _, position, _ ->
+            val selectedValue = statusValues[position]
+            settingsPrefs.edit().putString("pref_watchlist_status", selectedValue).apply()
+            ErrorLogManager.logEvent(TAG, "SETTINGS", "Watchlist status set to: $selectedValue")
         }
 
         // Set up button clicks
@@ -367,6 +403,9 @@ class ProfileFragment : Fragment() {
         donateUpiButton = null
         developerWebsiteButton = null
         darkModeSwitch = null
+        autoAddWatchlistSwitch = null
+        watchlistStatusAutoComplete = null
+        watchlistStatusContainer = null
         loadingIndicator = null
     }
 }

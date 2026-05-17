@@ -17,9 +17,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.ProgressBar
-import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -27,6 +25,7 @@ import androidx.navigation.fragment.findNavController
 import com.animerec.app.R
 import com.animerec.app.utils.OAuthUtil
 import com.animerec.app.utils.SecureStorage
+import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.launch
 
 /**
@@ -38,7 +37,7 @@ class LoginFragment : Fragment() {
     private lateinit var viewModel: AuthViewModel
     
     // UI components
-    private var loginButton: Button? = null
+    private var loginButton: MaterialButton? = null
     private var progressBar: ProgressBar? = null
     
     override fun onCreate(savedInstanceState: Bundle?) {
