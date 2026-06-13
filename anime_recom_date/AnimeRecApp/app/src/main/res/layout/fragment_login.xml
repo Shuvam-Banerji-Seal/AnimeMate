@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Author: Shuvam Banerji Seal | AnimeMate | Mit License -->
+<!--
+    Login screen. The user is bounced out to the system browser for
+    the actual OAuth dance (Google / Apple / Facebook / X / MAL all
+    block in-app WebView OAuth). On success, the browser is redirected
+    to animerec://auth?… which Android routes to OAuthCallbackActivity.
+-->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -48,7 +53,13 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/welcome_title" />
 
-        <!-- Main MAL login button — uses username/password or any saved session -->
+        <!--
+            Main MAL login button — uses username/password or any saved
+            session. All four provider buttons below route to the same
+            MAL endpoint; the only difference is `prompt=login` which
+            forces MAL to re-show the login screen so the user can
+            switch accounts.
+        -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_login_mal"
             android:layout_width="0dp"
@@ -153,7 +164,12 @@
             app:layout_constraintStart_toEndOf="@id/btn_login_facebook"
             app:layout_constraintTop_toBottomOf="@id/btn_login_apple" />
 
-        <!-- Status text — shown during loading, or on error -->
+        <!--
+            Status text — visible while loading (e.g. "Opening browser
+            for Google login…") and on error. Centered, monospace-ish,
+            ellipsized so long URLs / error messages don't break the
+            layout.
+        -->
         <TextView
             android:id="@+id/tv_status"
             android:layout_width="0dp"
@@ -161,34 +177,16 @@
             android:layout_marginStart="32dp"
             android:layout_marginTop="16dp"
             android:layout_marginEnd="32dp"
+            android:ellipsize="end"
             android:gravity="center"
+            android:maxLines="3"
             android:textColor="?attr/colorError"
             android:textSize="13sp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/btn_login_facebook" />
 
-        <!--
-            "Or log in inside the app" — secondary path using an in-app
-            WebView. Useful when the user is on a device where the
-            system browser is being uncooperative.
-        -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_login_inapp"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="32dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginEnd="32dp"
-            android:text="@string/login_use_inapp"
-            android:textAllCaps="false"
-            app:cornerRadius="24dp"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tv_status" />
-
-        <!-- Loading indicator — overlaid on the main button -->
+        <!-- Loading indicator overlaid on the main button -->
         <ProgressBar
             android:id="@+id/loading_indicator"
             android:layout_width="48dp"
@@ -210,7 +208,7 @@
             android:textSize="12sp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/btn_login_inapp"
+            app:layout_constraintTop_toBottomOf="@id/tv_status"
             app:layout_constraintBottom_toBottomOf="parent" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>

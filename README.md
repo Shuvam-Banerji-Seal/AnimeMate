@@ -3,7 +3,7 @@
 **Author:** Shuvam Banerji Seal 
 **License:** MIT
 **Website:** [shuvam-banerji-seal.github.io/AnimeMate](https://shuvam-banerji-seal.github.io/AnimeMate)
-**Version:** 1.1.2
+**Version:** 1.1.3
 **Build:** [![Build APK](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml/badge.svg)](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml)
 
 > A dating-style swipe interface for discovering your next favourite anime, manga or light novel — powered by MyAnimeList and a Twitter/X-inspired recommendation engine.
@@ -11,6 +11,15 @@
 AnimeMate is a native Android app that helps users discover content through a fun, card-based swipe interface. It connects to the [MyAnimeList](https://myanimelist.net/) API v2 to fetch personalised recommendations, manage watchlists, track history, and view detailed statistics — all within a polished Material Design 3 interface that supports both light and dark themes.
 
 ---
+
+## What's New in 1.1.3
+
+**External browser only.** Google, Apple, Facebook, and X all block OAuth from inside an embedded WebView or Chrome Custom Tabs — they require the system browser. v1.1.3 strips the in-app WebView path and the Custom Tabs path, and ships the system browser as the single auth surface.
+
+- **Deleted** `WebViewLoginActivity` (in-app WebView), the related layout/strings, the `inApp: Boolean` parameter on `LoginFragment.initiateLogin`, and the `androidx.browser:browser:1.8.0` dependency.
+- **`OAuthLauncher` is now a 30-line wrapper around `Intent.ACTION_VIEW`** with `FLAG_ACTIVITY_REQUIRE_NON_BROWSER` on API 30+ to force a real browser.
+- **All 5 login buttons (MAL, Google, Apple, Facebook, X) route through the system browser** → MAL handles the provider auth → `animerec://auth?…` deep link is routed by the OS to `OAuthCallbackActivity` → token exchange → main activity.
+- **All 50 unit tests still pass.**
 
 ## What's New in 1.1.2
 
@@ -250,22 +259,21 @@ The app uses **MyAnimeList API v2** with OAuth 2 PKCE authentication.
 - `GET /v2/manga?q=` — Search manga
 
 ### Auth Flow
+
+The login flow is **external browser only** — Google, Apple, Facebook, and X all block in-app WebView OAuth, so we ship the user out to the system browser for the auth dance. The OS deep-link routing then returns them to AnimeMate on success.
+
 1. User taps "Login with MyAnimeList" (or any of the 4 provider quick-buttons: Google / Apple / Facebook / X)
-2. App generates a 43-128 char PKCE code verifier (plain, per MAL docs)
+2. App generates a 43-128 char PKCE code verifier (**plain** PKCE — MAL OAuth2 docs state only `plain` is currently supported)
 3. App generates a 32-byte anti-CSRF `state` value
-4. App builds the authorization URL and **launches it in an in-app `WebView`** by default — the user never leaves AnimeMate
-5. User logs in inside the WebView (or via their chosen provider)
-6. MAL redirects to `animerec://auth?code=…&state=…` — **the WebView intercepts this** via `WebViewClient.shouldOverrideUrlLoading`, so the OS hand-off is bypassed
-7. App verifies the returned `state` matches the stored value (CSRF defense)
-8. App exchanges auth code for access + refresh tokens
-9. Tokens stored in `EncryptedSharedPreferences` (no plain-prefs fallback)
+4. App launches the MAL authorization URL in the system browser via `Intent.ACTION_VIEW` (with `FLAG_ACTIVITY_REQUIRE_NON_BROWSER` on API 30+ to force a real browser)
+5. User logs in inside their system browser. For third-party providers (Google / Apple / Facebook / X), MAL routes through the provider's own OAuth — the user never enters their provider password in AnimeMate.
+6. MAL redirects to `animerec://auth?code=…&state=…` — the OS routes this to the dedicated `OAuthCallbackActivity` (registered in the manifest with its own intent-filter)
+7. `OAuthCallbackActivity` verifies the returned `state` matches the stored value (CSRF defense)
+8. `OAuthCallbackActivity` exchanges the code for access + refresh tokens via MAL's token endpoint
+9. Tokens are stored in `EncryptedSharedPreferences` (no plain-prefs fallback)
 10. `AuthManager` handles automatic token refresh with mutex locking
 11. On logout, all OAuth state and verifiers are wiped from storage
-
-**Alternative paths:**
-- **Chrome Custom Tabs** — `OAuthLauncher` tries Custom Tabs first for the system-browser feel. Falls back to ACTION_VIEW if no provider is installed.
-- **System browser** — the final fallback if neither Custom Tabs nor WebView are available.
-- **Dedicated callback activity** — `OAuthCallbackActivity` is registered with its own intent-filter for `animerec://auth`, so external app launches (e.g. from a desktop browser) are still handled correctly.
+12. `OAuthCallbackActivity` finishes, brings `MainActivity` to the front, and posts the result via `AuthCallbackBus` so the login fragment can navigate to the home screen or profile-setup
 
 ---
 

@@ -10,8 +10,6 @@
  */
 package com.animerec.app.ui.auth
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -23,33 +21,37 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.animerec.app.R
 import com.animerec.app.utils.OAuthUtil
 import com.animerec.app.utils.SecureStorage
-import kotlinx.coroutines.launch
 
 /**
  * Fragment for user login via MyAnimeList OAuth.
  *
- * The login flow:
- *  1. User taps the "Log in with MyAnimeList" button (or any of the
- *     provider quick-buttons: Google / Apple / Facebook / X).
+ * The login flow is **external browser only**:
+ *
+ *  1. User taps "Login with MyAnimeList" (or any of the 4 provider
+ *     quick-buttons: Google / Apple / Facebook / X).
  *  2. We generate a PKCE code_verifier + state, store them in
- *     [SecureStorage], and launch the MAL authorization URL in a
- *     Chrome Custom Tab via [OAuthLauncher].
- *  3. The user logs in inside the Custom Tab, taps "Allow", and MAL
- *     redirects to `animerec://auth?code=…&state=…`.
- *  4. The Android system delivers that deep-link intent to our
+ *     [SecureStorage], and launch the MAL authorization URL in the
+ *     system browser via [OAuthLauncher].
+ *  3. The user logs in inside the system browser (which may itself
+ *     route through their chosen provider — Google / Apple / etc.
+ *     all block in-app WebView OAuth).
+ *  4. MAL redirects to `animerec://auth?code=…&state=…`.
+ *  5. The Android system delivers that deep-link intent to
  *     [OAuthCallbackActivity] (registered with its own intent-filter
- *     in the manifest). The callback activity verifies state, exchanges
- *     code for tokens, and posts the result to [AuthCallbackBus].
- *  5. This fragment (and any other active observer) reacts to the
+ *     in the manifest). The callback activity verifies state,
+ *     exchanges code for tokens, and posts the result to
+ *     [AuthCallbackBus].
+ *  6. This fragment (and any other active observer) reacts to the
  *     bus event, updates UI, and navigates to the next screen.
  *
- * If the user is signed in already, the fragment is short-circuited
- * to the post-login destination.
+ * Why external browser? Google, Apple, Facebook, and X all block
+ * OAuth flows that originate from an embedded WebView. Custom Tabs
+ * are flaky for some providers. The system browser is the only
+ * universally-approved surface.
  */
 class LoginFragment : Fragment() {
 
@@ -64,7 +66,6 @@ class LoginFragment : Fragment() {
     private var appleButton: ImageButton? = null
     private var facebookButton: ImageButton? = null
     private var twitterButton: ImageButton? = null
-    private var inAppButton: Button? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,17 +90,14 @@ class LoginFragment : Fragment() {
         appleButton = view.findViewById(R.id.btn_login_apple)
         facebookButton = view.findViewById(R.id.btn_login_facebook)
         twitterButton = view.findViewById(R.id.btn_login_x)
-        inAppButton = view.findViewById(R.id.btn_login_inapp)
 
-        // Main MAL login button
+        // All 5 login buttons route through the same OAuth flow in the
+        // system browser. The provider enum drives the `prompt=login`
+        // hint for the 4 third-party providers — MAL's own login uses
+        // the saved session if any.
         loginButton?.setOnClickListener {
-            initiateLogin(OAuthProvider.MAL)
+            initiateLogin(OAuthProvider.MAL, forceLogin = false)
         }
-        // Provider quick-buttons. Each delegates to the same OAuth flow
-        // because MAL funnels all providers through the same
-        // /v1/oauth2/authorize endpoint. The "prompt=login" parameter
-        // forces MAL to re-show the login screen even if the user is
-        // already logged in to the chosen provider in the system browser.
         googleButton?.setOnClickListener {
             initiateLogin(OAuthProvider.GOOGLE, forceLogin = true)
         }
@@ -111,11 +109,6 @@ class LoginFragment : Fragment() {
         }
         twitterButton?.setOnClickListener {
             initiateLogin(OAuthProvider.TWITTER, forceLogin = true)
-        }
-        // "Log in inside the app" — uses the in-app WebView path. The
-        // user does not leave AnimeMate for the auth flow.
-        inAppButton?.setOnClickListener {
-            initiateLogin(OAuthProvider.MAL, forceLogin = false, inApp = true)
         }
 
         // Observe the AuthViewModel state for the actual flow
@@ -164,32 +157,25 @@ class LoginFragment : Fragment() {
     }
 
     /**
-     * Initiate the login process. The user explicitly asked for an
-     * in-app login experience, so we launch the [WebViewLoginActivity]
-     * by default. The Custom-Tabs / system-browser path is still
-     * available via [OAuthLauncher] for users on devices where the
-     * WebView doesn't behave well (e.g. custom ROMs with broken
-     * third-party cookie policies).
+     * Initiate the login process.
      *
-     * @param provider Which MAL provider the user wants to log in with
-     *   (only affects the `prompt=login` hint; the actual authorization
-     *   flow always uses the MAL endpoint, which can route to any provider).
+     * @param provider Which MAL provider the user wants to log in with.
+     *   Only affects the `prompt=login` hint; the actual authorization
+     *   flow always uses the MAL endpoint, which can route to any
+     *   provider.
      * @param forceLogin If true, MAL is told to re-show the login screen
      *   (useful when the user wants to switch accounts).
-     * @param inApp If true (default), launch the in-app WebView login.
-     *   If false, fall back to Chrome Custom Tabs / system browser.
      */
-    private fun initiateLogin(
-        provider: OAuthProvider,
-        forceLogin: Boolean = false,
-        inApp: Boolean = true
-    ) {
+    private fun initiateLogin(provider: OAuthProvider, forceLogin: Boolean = false) {
         val codeVerifier = OAuthUtil.generateCodeVerifier()
         val state = OAuthUtil.generateState()
         val secureStorage = SecureStorage(requireContext())
         secureStorage.putString(SecureStorage.CODE_VERIFIER_KEY, codeVerifier)
         secureStorage.putString(STATE_KEY, state)
 
+        // MAL OAuth2 docs explicitly say only "plain" PKCE is supported
+        // today. S256 would silently fail with an "invalid challenge"
+        // error from MAL.
         val codeChallenge = OAuthUtil.generateCodeChallenge(codeVerifier, useS256 = false)
         val prompt = if (forceLogin) "login" else null
         val authUrl = OAuthUtil.buildAuthorizationUrl(
@@ -203,26 +189,10 @@ class LoginFragment : Fragment() {
             provider.displayName
         )
         showLoading(true)
-        if (inApp) {
-            launchInAppBrowser(authUrl)
-        } else {
-            OAuthLauncher.launch(requireContext(), authUrl)
-        }
-    }
-
-    /**
-     * Open the auth URL in our in-app WebView. The user never leaves
-     * AnimeMate — the WebView intercepts the `animerec://auth?…`
-     * redirect itself and runs the token exchange in-process.
-     */
-    private fun launchInAppBrowser(authUrl: String) {
-        val intent = android.content.Intent(
-            requireContext(),
-            WebViewLoginActivity::class.java
-        ).apply {
-            putExtra(WebViewLoginActivity.EXTRA_AUTH_URL, authUrl)
-        }
-        startActivity(intent)
+        // Bounce the user out to the system browser. Google / Apple /
+        // Facebook / X all block WebView-based OAuth, so this is the
+        // only path that works for all 5 providers.
+        OAuthLauncher.launch(requireContext(), authUrl)
     }
 
     private fun navigateToNextScreen(isSetupCompleted: Boolean) {
@@ -240,7 +210,6 @@ class LoginFragment : Fragment() {
         appleButton?.isEnabled = !isLoading
         facebookButton?.isEnabled = !isLoading
         twitterButton?.isEnabled = !isLoading
-        inAppButton?.isEnabled = !isLoading
     }
 
     override fun onDestroyView() {
@@ -252,7 +221,6 @@ class LoginFragment : Fragment() {
         appleButton = null
         facebookButton = null
         twitterButton = null
-        inAppButton = null
     }
 
     companion object {

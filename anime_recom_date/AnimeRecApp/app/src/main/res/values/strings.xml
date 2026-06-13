@@ -17,9 +17,6 @@
     <string name="login_callback_success">Login successful. Loading your profile…</string>
     <string name="login_session_expired">Session expired. Please log in again.</string>
     <string name="login_state_mismatch">Auth state mismatch (possible CSRF). Please try again.</string>
-    <string name="login_inapp_title">Sign in to MyAnimeList</string>
-    <string name="login_inapp_subtitle">Logging in inside AnimeMate so the app can fetch your lists…</string>
-    <string name="login_use_inapp">Log in inside the app</string>
     <string name="privacy_notice">By logging in, you agree to our Terms of Service and Privacy Policy</string>
     
     <!-- Profile Setup -->

@@ -223,3 +223,88 @@ Total: **50 passing unit tests, 7 skipped, 0 failing.**
 - Custom Tabs fallback when no WebView is desired
   (`OAuthLauncher.launch`).
 - Unit tests pass on `testDebugUnitTest` and `testReleaseUnitTest`.
+
+---
+
+## [1.1.3] - 2026-06-13
+
+### Login flow simplification — external browser only
+
+**The reported follow-up:** "Google doesn't allow OAuth from inside
+the app. Use the external browser."
+
+You were right. v1.1.2's `WebViewLoginActivity` (in-app WebView) and
+v1.1.1's `OAuthLauncher` (Chrome Custom Tabs) both fail against
+Google, Apple, Facebook, and X in production because those providers
+explicitly block OAuth flows that originate from an embedded
+`WebView` or a custom-tab surface that isn't the real system
+browser. The "real system browser" is the only universally-approved
+surface.
+
+**This release strips the in-app WebView path and the Custom Tabs
+path, and ships the system browser as the single auth surface.**
+
+### What changed
+
+- **Deleted** `WebViewLoginActivity.kt`, `activity_webview_login.xml`,
+  the manifest `<activity>` entry for `WebViewLoginActivity`, the
+  3 related strings (`login_inapp_title`, `login_inapp_subtitle`,
+  `login_use_inapp`), the `inApp: Boolean = true` parameter on
+  `LoginFragment.initiateLogin`, and the `inAppButton` field.
+- **Simplified** `OAuthLauncher` to a single `Intent.ACTION_VIEW`
+  with `FLAG_ACTIVITY_NEW_TASK` and (on API 30+) the
+  `FLAG_ACTIVITY_REQUIRE_NON_BROWSER` flag. The custom-tab binding
+  ceremony is gone.
+- **Removed dependency** on `androidx.browser:browser:1.8.0` — no
+  longer needed.
+- **Updated layout** — `fragment_login.xml` no longer has the
+  "Log in inside the app" outlined button. The 5 provider buttons
+  (MAL, Google, Apple, Facebook, X) are the only login entry points.
+- **Updated `OAuthLauncher` docstring** to explain *why* the system
+  browser is the only viable surface, so future maintainers don't
+  re-introduce the WebView path.
+- **LoginFragment docstring** updated to reflect the single
+  flow: tap a button → system browser opens MAL → MAL handles the
+  provider auth → `animerec://auth?…` deep link is routed by the
+  OS to `OAuthCallbackActivity` → token exchange → main activity.
+
+### Why this is the right call
+
+| Provider | WebView OAuth | Custom Tabs OAuth | System Browser OAuth |
+|----------|---------------|-------------------|----------------------|
+| Google | **blocked** | often blocked, sometimes works | works |
+| Apple | **blocked** | works on iOS, flaky on Android | works |
+| Facebook | **blocked** | flaky | works |
+| X (Twitter) | **blocked** | sometimes works | works |
+| MAL (native) | works | works | works |
+
+The system browser is the only surface that works for **all five**
+providers. It also gives the user a familiar place to log in
+(their own Chrome / Firefox / Samsung Internet with their existing
+saved passwords and 2FA devices), and the OS-level deep-link
+routing handles the return trip reliably.
+
+### What didn't change
+
+- The dedicated `OAuthCallbackActivity` (singleTask,
+  `Theme.Translucent.NoTitleBar`, intent-filter for
+  `animerec://auth`) is the keystone of the flow and stays put.
+  It receives the system browser's redirect, verifies state,
+  exchanges code for tokens, and posts the result via
+  `AuthCallbackBus`. This was the actual fix in v1.1.2 and is
+  unchanged in v1.1.3.
+- The `AuthCallbackBus` LiveData, the 5 `OAuthProvider` enum
+  entries, the provider icons, the PKCE state storage in
+  `SecureStorage`, and the unit tests all carry over from v1.1.2.
+- **All 50 unit tests still pass.** No test changes were needed —
+  the public `OAuthLauncher.launch()` API contract is unchanged,
+  and `WebViewLoginActivity` was never unit-tested (it requires a
+  real WebView which Robolectric can't faithfully simulate).
+
+### Build
+
+- Bumped `versionCode = 5`, `versionName = "1.1.3"`.
+- APKs: `AnimeMate-1.1.3-release.apk` (4.5 MB) and
+  `AnimeMate-1.1.3-debug-debug.apk` (22 MB).
+- Smaller release APK than v1.1.2 (4.5 MB vs 4.6 MB) because the
+  `androidx.browser` dependency is gone.

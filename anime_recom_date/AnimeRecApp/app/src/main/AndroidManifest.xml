@@ -26,9 +26,10 @@
 
         <!--
             OAuth callback activity — receives the deep-link redirect from
-            Chrome Custom Tabs (or the system browser) after the user logs
-            in to MAL and clicks "Allow". Sits at singleTask with no UI, then
-            hands control back to MainActivity.
+            the system browser (or any other app that resolves
+            `animerec://auth`) after the user logs in to MAL and clicks
+            "Allow". Sits at singleTask with no UI, then hands control
+            back to MainActivity.
         -->
         <activity
             android:name=".ui.auth.OAuthCallbackActivity"
@@ -46,18 +47,6 @@
                     android:host="auth" />
             </intent-filter>
         </activity>
-
-        <!--
-            In-app WebView login — gives the user a true "log in inside
-            the app" experience using a real WebView. Chosen when the
-            OS does not have a Chrome Custom Tabs provider, or when the
-            user explicitly taps the "Log in inside the app" link.
-        -->
-        <activity
-            android:name=".ui.auth.WebViewLoginActivity"
-            android:exported="false"
-            android:label="@string/login_inapp_title"
-            android:windowSoftInputMode="adjustResize" />
         
         <!-- FileProvider for sharing error log files via email -->
         <provider
