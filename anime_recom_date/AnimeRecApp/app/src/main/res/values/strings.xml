@@ -8,6 +8,18 @@
     <string name="welcome_title">Welcome to AnimeMate</string>
     <string name="welcome_subtitle">Connect with MyAnimeList to get personalized recommendations based on your taste</string>
     <string name="login_with_mal">Login with MyAnimeList</string>
+    <string name="login_or_use">or use</string>
+    <string name="login_with_google">Log in with Google</string>
+    <string name="login_with_apple">Log in with Apple</string>
+    <string name="login_with_facebook">Log in with Facebook</string>
+    <string name="login_with_x">Log in with X</string>
+    <string name="login_opening_browser">Opening browser for %1$s login…</string>
+    <string name="login_callback_success">Login successful. Loading your profile…</string>
+    <string name="login_session_expired">Session expired. Please log in again.</string>
+    <string name="login_state_mismatch">Auth state mismatch (possible CSRF). Please try again.</string>
+    <string name="login_inapp_title">Sign in to MyAnimeList</string>
+    <string name="login_inapp_subtitle">Logging in inside AnimeMate so the app can fetch your lists…</string>
+    <string name="login_use_inapp">Log in inside the app</string>
     <string name="privacy_notice">By logging in, you agree to our Terms of Service and Privacy Policy</string>
     
     <!-- Profile Setup -->

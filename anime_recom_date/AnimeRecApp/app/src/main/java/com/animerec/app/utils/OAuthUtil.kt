@@ -54,36 +54,48 @@ object OAuthUtil {
     }
 
     /**
-     * Generate code challenge from code verifier using S256 method (RFC 7636).
-     * Falls back to "plain" only when the caller explicitly requests it (for
-     * legacy servers that don't accept S256).
+     * Generate code challenge from code verifier.
+     *
+     * IMPORTANT: MyAnimeList's official OAuth2 documentation explicitly states
+     * that "Currently, only the `plain` method is supported." (See
+     * https://myanimelist.net/apiconfig/references/authorization#step-1-…)
+     * We therefore default to `plain`. The `useS256` parameter is kept for
+     * future-proofing — the day MAL adds S256 support, only one call site
+     * needs to flip the bit.
      */
-    fun generateCodeChallenge(codeVerifier: String, useS256: Boolean = true): String {
+    fun generateCodeChallenge(codeVerifier: String, useS256: Boolean = false): String {
         require(codeVerifier.length in MIN_VERIFIER_LENGTH..MAX_VERIFIER_LENGTH) {
             "Code verifier length ${codeVerifier.length} outside PKCE range $MIN_VERIFIER_LENGTH..$MAX_VERIFIER_LENGTH"
         }
         require(codeVerifier.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it in "-._~" }) {
             "Code verifier contains non-PKCE characters"
         }
-        if (!useS256) return codeVerifier
-        val digest = MessageDigest.getInstance("SHA-256").digest(codeVerifier.toByteArray(Charsets.US_ASCII))
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
+        // MAL accepts only "plain" today. The S256 path is dead code but kept
+        // for the day MAL flips the switch.
+        return if (useS256) {
+            val digest = MessageDigest.getInstance("SHA-256").digest(codeVerifier.toByteArray(Charsets.US_ASCII))
+            Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
+        } else {
+            codeVerifier
+        }
     }
-    
+
     /**
      * Build the authorization URL for MyAnimeList.
      *
-     * @param codeChallenge The PKCE code challenge (S256 of the verifier)
+     * @param codeChallenge The PKCE code challenge
      * @param state Anti-CSRF state value, must be validated on callback
-     * @param useS256 If true, uses S256 challenge method (recommended); else "plain"
+     * @param useS256 If true, uses S256 challenge method; else "plain" (MAL default)
+     * @param prompt "login" to force re-login, "none" to silently check, default
+     *        lets MAL decide
      */
     fun buildAuthorizationUrl(
         codeChallenge: String,
         state: String,
-        useS256: Boolean = true
+        useS256: Boolean = false,
+        prompt: String? = null
     ): String {
-        return Uri.parse(AnimeRecApp.MAL_AUTH_URL)
-            .buildUpon()
+        val builder = Uri.parse(AnimeRecApp.MAL_AUTH_URL).buildUpon()
             .appendQueryParameter("response_type", "code")
             .appendQueryParameter("client_id", AnimeRecApp.CLIENT_ID)
             .appendQueryParameter("redirect_uri", AnimeRecApp.REDIRECT_URI)
@@ -93,8 +105,10 @@ object OAuthUtil {
                 if (useS256) "S256" else "plain"
             )
             .appendQueryParameter("state", state)
-            .build()
-            .toString()
+        if (prompt != null) {
+            builder.appendQueryParameter("prompt", prompt)
+        }
+        return builder.build().toString()
     }
     
     /**

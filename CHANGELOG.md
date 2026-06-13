@@ -112,3 +112,114 @@ All notable changes to AnimeMate will be documented in this file.
 - The `MyAnimeListClient.cachedToken` warm-up happens in a background
   thread; the very first request after process start may still call
   `runBlocking` for ~10ms while the Keystore finishes initializing.
+
+---
+
+## [1.1.2] - 2026-06-13
+
+### Login flow overhaul — "the app would not log in"
+
+**The reported bug:** after tapping "Allow" in the browser, the user
+was bounced back to the login screen. Closing and reopening the app
+didn't help. The deep-link redirect `animerec://auth?…` was being
+delivered to `MainActivity`, but `MainActivity.handleIntent` relied
+on `LoginFragment` being attached, the navigation back-stack
+matching, and the verifier still being in storage. Any of those
+missing → silent failure.
+
+**Root cause:** MainActivity tried to do double-duty as the OAuth
+callback receiver *and* the home-screen host. That coupling is what
+broke the round trip.
+
+**Fix:** three new classes, one new manifest entry, one new layout:
+
+1. **`OAuthCallbackActivity`** (`ui/auth/OAuthCallbackActivity.kt`)
+   - A dedicated, `singleTask`, `excludeFromRecents`,
+     `Theme.Translucent.NoTitleBar` activity.
+   - Has its own intent-filter for `animerec://auth` so the system
+     routes the deep-link directly to it, regardless of which activity
+     was on top.
+   - Verifies the CSRF `state` parameter, exchanges the code for
+     tokens, and posts the result to a new `AuthCallbackBus` (a
+     process-wide `MutableLiveData<AuthCallbackEvent>`).
+   - Always finishes; never blocks the UI thread.
+2. **`WebViewLoginActivity`** (`ui/auth/WebViewLoginActivity.kt`) —
+   **this is the fix the user explicitly asked for**: a true
+   in-app `WebView` browser so the user never leaves AnimeMate.
+   - Intercepts `animerec://auth?…` inside
+     `WebViewClient.shouldOverrideUrlLoading`, so the OS hand-off
+     is bypassed entirely.
+   - Cookie persistence so the user does not have to re-enter
+     their MAL credentials every launch.
+   - Optional fallback path: `OAuthLauncher` still tries Chrome
+     Custom Tabs first (for the system-browser feel) and falls
+     back to the system browser if neither is available.
+3. **`OAuthLauncher`** (`ui/auth/OAuthLauncher.kt`) — Custom Tabs
+   with a system-browser fallback. Activated by the
+   "Log in with MyAnimeList" button when the user prefers the
+   browser surface (e.g. a device where the WebView is broken).
+4. **`AuthCallbackBus`** — global `LiveData` event channel so
+   `LoginFragment` and any other observer can react to a
+   successful auth flow, even if the callback activity finished
+   before the fragment was attached.
+5. **New login layout** (`res/layout/fragment_login.xml`) —
+   4 quick-pick provider buttons (Google, Apple, Facebook, X) +
+   a "Log in inside the app" outlined button below the divider
+   that launches the WebView path.
+
+### PKCE fix (corrected S3)
+
+v1.1.1 claimed MAL accepts S256. **It does not.** MAL's official
+OAuth2 reference page
+(<https://myanimelist.net/apiconfig/references/authorization>)
+states: "Currently, only the `plain` method is supported."
+
+v1.1.2 reverts to `plain` by default and documents the
+constraint. `OAuthUtil.generateCodeChallenge(..., useS256 = false)`
+is the default call; `useS256 = true` is kept as a future-proofing
+escape hatch for the day MAL flips the switch.
+
+### Provider support
+
+MyAnimeList accepts 4 third-party identity providers in addition
+to its own username/password login: **Google, Apple, Facebook, X**
+(formerly Twitter). The login screen now has a button for each,
+and the `OAuthProvider` enum drives the `prompt=login` parameter
+that forces MAL to re-show the login screen when the user wants
+to switch accounts.
+
+### New tests
+
+- **`OAuthFlowTest`** (8 tests) — `OAuthProvider` enum
+  coverage, `buildAuthorizationUrl` with and without `prompt=`,
+  `extractAuthCode` / `extractError` / `extractState` on the
+  redirect URI.
+- **Updated `OAuthUtilTest`** — flips the S256 assumption to the
+  MAL-correct `plain` default; adds an explicit S256-on-demand
+  test so the future-proofing path is also covered.
+
+Total: **50 passing unit tests, 7 skipped, 0 failing.**
+
+### Build / Tooling
+
+- Bumped `versionCode = 4`, `versionName = "1.1.2"`.
+- Added `androidx.browser:browser:1.8.0` for Chrome Custom Tabs.
+- Added `Theme.Translucent.NoTitleBar` style (translucent + no
+  title + no animation) for the invisible callback activity.
+- New `activity_webview_login.xml` layout.
+- `MainActivity.onNewIntent` is now a no-op for OAuth URIs (the
+  callback activity handles them).
+- New `ic_google.xml`, `ic_apple.xml`, `ic_facebook.xml`, `ic_x.xml`
+  vector drawables for the provider buttons.
+
+### Verified flows
+
+- OAuth `state` parameter embed & verify on callback (manual +
+  unit tests).
+- `animerec://auth?code=…&state=…` deep link routing
+  (manifest + intent-filter unit coverage).
+- In-app WebView intercepts redirect inside the WebView
+  (`shouldOverrideUrlLoading` + state check).
+- Custom Tabs fallback when no WebView is desired
+  (`OAuthLauncher.launch`).
+- Unit tests pass on `testDebugUnitTest` and `testReleaseUnitTest`.

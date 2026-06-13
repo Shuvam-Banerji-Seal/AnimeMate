@@ -41,9 +41,38 @@ class OAuthUtilTest {
     }
 
     @Test
-    fun `buildAuthorizationUrl uses S256 code challenge method by default`() {
+    fun `buildAuthorizationUrl uses plain code challenge method by default because MAL only supports plain`() {
+        // MAL's official docs (myanimelist.net/apiconfig/references/authorization)
+        // explicitly state only "plain" PKCE is currently supported. The default
+        // reflects that. We expose useS256=true as a future-proofing escape
+        // hatch (the day MAL flips the switch, one call site changes).
         val url = OAuthUtil.buildAuthorizationUrl("challenge", state = "s")
-        assertTrue("URL must declare S256 (S3): $url", url.contains("code_challenge_method=S256"))
+        assertTrue("URL must declare plain (MAL requirement): $url", url.contains("code_challenge_method=plain"))
+    }
+
+    @Test
+    fun `code challenge is plain by default equals the verifier itself`() {
+        val verifier = OAuthUtil.generateCodeVerifier()
+        val challenge = OAuthUtil.generateCodeChallenge(verifier, useS256 = false)
+        assertEquals(
+            "plain challenge must equal verifier (no transformation)",
+            verifier,
+            challenge
+        )
+    }
+
+    @Test
+    fun `code challenge is S256 when explicitly requested for future MAL support`() {
+        val verifier = OAuthUtil.generateCodeVerifier()
+        val challenge = OAuthUtil.generateCodeChallenge(verifier, useS256 = true)
+        val expected = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray()))
+        assertEquals(
+            "When useS256=true, challenge must be SHA-256(verifier) — not the verifier itself",
+            expected,
+            challenge
+        )
+        assertNotEquals("S256 challenge must not equal verifier", verifier, challenge)
     }
 
     @Test
@@ -93,20 +122,6 @@ class OAuthUtilTest {
             "Verifier contains non-PKCE chars: $verifier",
             verifier.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it in "-._~" }
         )
-    }
-
-    @Test
-    fun `code challenge is S256 of verifier, not verifier itself`() {
-        val verifier = OAuthUtil.generateCodeVerifier()
-        val challenge = OAuthUtil.generateCodeChallenge(verifier)
-        val expected = Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray()))
-        assertEquals(
-            "Challenge must be S256(verifier) — not the verifier itself (S3)",
-            expected,
-            challenge
-        )
-        assertNotEquals("Challenge must not equal verifier for S256", verifier, challenge)
     }
 
     @Test

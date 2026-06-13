@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Google "G" logo — simplified multicolour icon.
+    Source: Google brand guidelines, recoloured for the AnimeMate
+    Material3 light theme. Use this as the login button icon for
+    "Sign in with Google" via MAL.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#4285F4"
+        android:pathData="M44,24c0,-1.6 -0.1,-3.1 -0.4,-4.5H24v8.5h11.2c-0.5,2.6 -2,4.8 -4.2,6.3v5.2h6.8C41.7,36 44,30.4 44,24z" />
+    <path
+        android:fillColor="#34A853"
+        android:pathData="M24,46c5.8,0 10.6,-1.9 14.1,-5.2l-6.8,-5.2c-1.9,1.3 -4.3,2 -7.3,2c-5.6,0 -10.4,-3.8 -12.1,-8.9H4.8v5.5C8.3,40.6 15.6,46 24,46z" />
+    <path
+        android:fillColor="#FBBC05"
+        android:pathData="M11.9,28.7c-0.4,-1.3 -0.7,-2.6 -0.7,-4s0.3,-2.7 0.7,-4V15.2H4.8C3.5,17.6 2.8,20.7 2.8,24s0.7,6.4 2,8.8L11.9,28.7z" />
+    <path
+        android:fillColor="#EA4335"
+        android:pathData="M24,10.2c3.2,0 6,1.1 8.2,3.2l6.1,-6.1C34.6,3.4 29.6,1.5 24,1.5C15.6,1.5 8.3,6.9 4.8,14.2l7.1,5.5C13.6,14 18.4,10.2 24,10.2z" />
+</vector>

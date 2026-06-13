@@ -1,84 +1,217 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Author: Shuvam Banerji Seal | AnimeMate | MIT License -->
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Author: Shuvam Banerji Seal | AnimeMate | Mit License -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="24dp"
+    android:fillViewport="true"
     tools:context=".ui.auth.LoginFragment">
 
-    <ImageView
-        android:id="@+id/logo"
-        android:layout_width="120dp"
-        android:layout_height="120dp"
-        android:layout_marginTop="48dp"
-        android:contentDescription="@string/app_name"
-        android:src="@mipmap/ic_launcher"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <TextView
-        android:id="@+id/welcome_title"
-        android:layout_width="wrap_content"
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="@string/welcome_title"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/logo" />
+        android:padding="24dp">
 
-    <TextView
-        android:id="@+id/welcome_subtitle"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:gravity="center"
-        android:text="@string/welcome_subtitle"
-        android:textSize="16sp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/welcome_title" />
+        <ImageView
+            android:id="@+id/logo"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:layout_marginTop="48dp"
+            android:contentDescription="@string/app_name"
+            android:src="@mipmap/ic_launcher"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_login_mal"
-        android:layout_width="0dp"
-        android:layout_height="56dp"
-        android:layout_marginStart="32dp"
-        android:layout_marginEnd="32dp"
-        android:text="@string/login_with_mal"
-        android:textAllCaps="false"
-        android:textSize="16sp"
-        app:cornerRadius="28dp"
-        app:layout_constraintBottom_toTopOf="@id/privacy_notice"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/welcome_subtitle"
-        app:layout_constraintVertical_bias="0.6" />
+        <TextView
+            android:id="@+id/welcome_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/welcome_title"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/logo" />
 
-    <ProgressBar
-        android:id="@+id/loading_indicator"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:visibility="gone"
-        app:layout_constraintBottom_toBottomOf="@id/btn_login_mal"
-        app:layout_constraintEnd_toEndOf="@id/btn_login_mal"
-        app:layout_constraintStart_toStartOf="@id/btn_login_mal"
-        app:layout_constraintTop_toTopOf="@id/btn_login_mal" />
+        <TextView
+            android:id="@+id/welcome_subtitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:text="@string/welcome_subtitle"
+            android:textSize="16sp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/welcome_title" />
 
-    <TextView
-        android:id="@+id/privacy_notice"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp"
-        android:gravity="center"
-        android:text="@string/privacy_notice"
-        android:textSize="12sp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        <!-- Main MAL login button — uses username/password or any saved session -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_login_mal"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="32dp"
+            android:layout_marginTop="32dp"
+            android:layout_marginEnd="32dp"
+            android:text="@string/login_with_mal"
+            android:textAllCaps="false"
+            android:textSize="16sp"
+            app:cornerRadius="28dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/welcome_subtitle" />
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <!-- Divider with "or use" text -->
+        <View
+            android:id="@+id/divider"
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_marginTop="24dp"
+            android:layout_marginStart="32dp"
+            android:layout_marginEnd="32dp"
+            android:background="?attr/colorOutlineVariant"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/btn_login_mal" />
+
+        <TextView
+            android:id="@+id/divider_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:background="@color/surface_light"
+            android:text="@string/login_or_use"
+            android:textSize="12sp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="@id/divider"
+            app:layout_constraintBottom_toBottomOf="@id/divider" />
+
+        <!-- Provider quick-buttons row 1: Google + Apple -->
+        <ImageButton
+            android:id="@+id/btn_login_google"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="24dp"
+            android:layout_marginEnd="16dp"
+            android:contentDescription="@string/login_with_google"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_google"
+            app:layout_constraintEnd_toStartOf="@id/btn_login_apple"
+            app:layout_constraintHorizontal_chainStyle="packed"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/divider" />
+
+        <ImageButton
+            android:id="@+id/btn_login_apple"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="24dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="32dp"
+            android:contentDescription="@string/login_with_apple"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_apple"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toEndOf="@id/btn_login_google"
+            app:layout_constraintTop_toBottomOf="@id/divider" />
+
+        <!-- Provider quick-buttons row 2: Facebook + X (Twitter) -->
+        <ImageButton
+            android:id="@+id/btn_login_facebook"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginEnd="16dp"
+            android:contentDescription="@string/login_with_facebook"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_facebook"
+            app:layout_constraintEnd_toStartOf="@id/btn_login_x"
+            app:layout_constraintHorizontal_chainStyle="packed"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/btn_login_google" />
+
+        <ImageButton
+            android:id="@+id/btn_login_x"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="32dp"
+            android:contentDescription="@string/login_with_x"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_x"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toEndOf="@id/btn_login_facebook"
+            app:layout_constraintTop_toBottomOf="@id/btn_login_apple" />
+
+        <!-- Status text — shown during loading, or on error -->
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="32dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginEnd="32dp"
+            android:gravity="center"
+            android:textColor="?attr/colorError"
+            android:textSize="13sp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/btn_login_facebook" />
+
+        <!--
+            "Or log in inside the app" — secondary path using an in-app
+            WebView. Useful when the user is on a device where the
+            system browser is being uncooperative.
+        -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_login_inapp"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="32dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginEnd="32dp"
+            android:text="@string/login_use_inapp"
+            android:textAllCaps="false"
+            app:cornerRadius="24dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tv_status" />
+
+        <!-- Loading indicator — overlaid on the main button -->
+        <ProgressBar
+            android:id="@+id/loading_indicator"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/btn_login_mal"
+            app:layout_constraintEnd_toEndOf="@id/btn_login_mal"
+            app:layout_constraintStart_toStartOf="@id/btn_login_mal"
+            app:layout_constraintTop_toTopOf="@id/btn_login_mal" />
+
+        <TextView
+            android:id="@+id/privacy_notice"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:layout_marginBottom="24dp"
+            android:gravity="center"
+            android:text="@string/privacy_notice"
+            android:textSize="12sp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/btn_login_inapp"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</ScrollView>

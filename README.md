@@ -3,7 +3,7 @@
 **Author:** Shuvam Banerji Seal 
 **License:** MIT
 **Website:** [shuvam-banerji-seal.github.io/AnimeMate](https://shuvam-banerji-seal.github.io/AnimeMate)
-**Version:** 1.1.1
+**Version:** 1.1.2
 **Build:** [![Build APK](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml/badge.svg)](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml)
 
 > A dating-style swipe interface for discovering your next favourite anime, manga or light novel — powered by MyAnimeList and a Twitter/X-inspired recommendation engine.
@@ -11,6 +11,19 @@
 AnimeMate is a native Android app that helps users discover content through a fun, card-based swipe interface. It connects to the [MyAnimeList](https://myanimelist.net/) API v2 to fetch personalised recommendations, manage watchlists, track history, and view detailed statistics — all within a polished Material Design 3 interface that supports both light and dark themes.
 
 ---
+
+## What's New in 1.1.2
+
+The reported bug: "after tapping Allow in the browser, the app bounces back to login, and closing/reopening doesn't help." Root cause: `MainActivity` was doing double duty as the OAuth callback receiver and the home-screen host, and the round-trip broke whenever the back-stack didn't match.
+
+**v1.1.2 fix**:
+- **Dedicated `OAuthCallbackActivity`** — owns the `animerec://auth` intent-filter, so the system routes the deep-link directly to it regardless of which activity was on top.
+- **True in-app WebView login** (`WebViewLoginActivity`) — the user never leaves AnimeMate. The WebView intercepts the `animerec://auth?…` redirect itself, runs the token exchange in-process, and posts the result via a new `AuthCallbackBus` LiveData.
+- **4 third-party providers** (Google, Apple, Facebook, X) plus the main "Login with MyAnimeList" button. Each routes through the same `OAuthProvider` enum; `prompt=login` is appended when the user wants to switch accounts.
+- **Custom Tabs fallback** (`OAuthLauncher`) — for devices where the user prefers the system-browser feel.
+- **PKCE correction** — v1.1.1 incorrectly switched from `plain` to S256; MAL's docs say only `plain` is currently supported. v1.1.2 reverts to `plain` by default and keeps `useS256=true` as a future-proofing flag.
+
+Total: **50 unit tests passing, 7 skipped, 0 failing.**
 
 ## What's New in 1.1.1
 
@@ -237,16 +250,22 @@ The app uses **MyAnimeList API v2** with OAuth 2 PKCE authentication.
 - `GET /v2/manga?q=` — Search manga
 
 ### Auth Flow
-1. App generates a cryptographically-random PKCE code verifier (43-128 chars)
-2. App generates an S256 challenge = `BASE64URL(SHA-256(verifier))`
+1. User taps "Login with MyAnimeList" (or any of the 4 provider quick-buttons: Google / Apple / Facebook / X)
+2. App generates a 43-128 char PKCE code verifier (plain, per MAL docs)
 3. App generates a 32-byte anti-CSRF `state` value
-4. App opens MAL authorization URL with `code_challenge`, `code_challenge_method=S256`, and `state` query parameters
-5. User grants access → redirect to `animerec://auth?code=…&state=…`
-6. App verifies the returned `state` matches the stored value (CSRF defense)
-7. App exchanges auth code for access + refresh tokens
-8. Tokens stored in `EncryptedSharedPreferences` (no plain-prefs fallback)
-9. `AuthManager` handles automatic token refresh with mutex locking
-10. On logout, all OAuth state and verifiers are wiped from storage
+4. App builds the authorization URL and **launches it in an in-app `WebView`** by default — the user never leaves AnimeMate
+5. User logs in inside the WebView (or via their chosen provider)
+6. MAL redirects to `animerec://auth?code=…&state=…` — **the WebView intercepts this** via `WebViewClient.shouldOverrideUrlLoading`, so the OS hand-off is bypassed
+7. App verifies the returned `state` matches the stored value (CSRF defense)
+8. App exchanges auth code for access + refresh tokens
+9. Tokens stored in `EncryptedSharedPreferences` (no plain-prefs fallback)
+10. `AuthManager` handles automatic token refresh with mutex locking
+11. On logout, all OAuth state and verifiers are wiped from storage
+
+**Alternative paths:**
+- **Chrome Custom Tabs** — `OAuthLauncher` tries Custom Tabs first for the system-browser feel. Falls back to ACTION_VIEW if no provider is installed.
+- **System browser** — the final fallback if neither Custom Tabs nor WebView are available.
+- **Dedicated callback activity** — `OAuthCallbackActivity` is registered with its own intent-filter for `animerec://auth`, so external app launches (e.g. from a desktop browser) are still handled correctly.
 
 ---
 
@@ -265,7 +284,8 @@ cd anime_recom_date/AnimeRecApp
 
 | Class | Tests | What it verifies |
 |-------|-------|------------------|
-| `OAuthUtilTest` | 10 | PKCE verifier length/charset, S256 challenge correctness, `state` parameter embed/extract, edge cases |
+| `OAuthUtilTest` | 11 | PKCE verifier length/charset, **plain** challenge (MAL default), S256 challenge on demand, `state` parameter embed/extract, edge cases |
+| `OAuthFlowTest` | 8 | `OAuthProvider` enum (5 entries), `buildAuthorizationUrl` with/without `prompt=`, `extractAuthCode/Error/State` from redirect URI |
 | `SecureStorageTest` | 7 | Round-trip ops, `isEncrypted` contract (skipped under JVM-only Robolectric) |
 | `ApiResponseCacheTest` | 9 | Round-trip, LRU eviction, **concurrent get/put under 8 threads** (was: crash with CME) |
 | `UserPreferenceModelTest` | 8 | Positive/negative weight deltas, ±10 clamp, `getTopGenres` / `getDislikedGenres` ordering, persistence |
@@ -273,7 +293,7 @@ cd anime_recom_date/AnimeRecApp
 | `RetryInterceptorTest` | 8 | Idempotent method classification, retryable status codes (429/500/502/503), non-retry of 4xx |
 | `ErrorLogManagerTest` | 2 | Redacted prefs snapshot does NOT contain raw user values (S5) |
 
-**Total: 42 passing tests, 7 skipped (require AndroidKeyStore on a real device).**
+**Total: 50 passing tests, 7 skipped (require AndroidKeyStore on a real device).**
 
 ---
 

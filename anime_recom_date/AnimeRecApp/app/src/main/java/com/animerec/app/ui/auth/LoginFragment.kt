@@ -1,5 +1,5 @@
 /*
- * AnimeRec - Anime Recommendation App
+ * AnimeRec - Anime Recomendación App
  * Copyright (C) 2025 Shuvam Banerji Seal
  *
  * Developed by: Shuvam Banerji Seal
@@ -18,6 +18,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.fragment.app.Fragment
@@ -31,51 +32,93 @@ import kotlinx.coroutines.launch
 
 /**
  * Fragment for user login via MyAnimeList OAuth.
+ *
+ * The login flow:
+ *  1. User taps the "Log in with MyAnimeList" button (or any of the
+ *     provider quick-buttons: Google / Apple / Facebook / X).
+ *  2. We generate a PKCE code_verifier + state, store them in
+ *     [SecureStorage], and launch the MAL authorization URL in a
+ *     Chrome Custom Tab via [OAuthLauncher].
+ *  3. The user logs in inside the Custom Tab, taps "Allow", and MAL
+ *     redirects to `animerec://auth?code=…&state=…`.
+ *  4. The Android system delivers that deep-link intent to our
+ *     [OAuthCallbackActivity] (registered with its own intent-filter
+ *     in the manifest). The callback activity verifies state, exchanges
+ *     code for tokens, and posts the result to [AuthCallbackBus].
+ *  5. This fragment (and any other active observer) reacts to the
+ *     bus event, updates UI, and navigates to the next screen.
+ *
+ * If the user is signed in already, the fragment is short-circuited
+ * to the post-login destination.
  */
 class LoginFragment : Fragment() {
 
     private val TAG = "LoginFragment"
     private lateinit var viewModel: AuthViewModel
 
-    // SharedPreferences key for the OAuth state parameter (S2: CSRF protection)
-    private val STATE_KEY = "oauth_state"
-
     // UI components
     private var loginButton: Button? = null
     private var progressBar: ProgressBar? = null
-    
+    private var statusText: TextView? = null
+    private var googleButton: ImageButton? = null
+    private var appleButton: ImageButton? = null
+    private var facebookButton: ImageButton? = null
+    private var twitterButton: ImageButton? = null
+    private var inAppButton: Button? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         viewModel = ViewModelProvider(this)[AuthViewModel::class.java]
-        
-        // Check for OAuth redirect
-        activity?.intent?.data?.let { uri ->
-            if (uri.scheme == "animerec" && uri.host == "auth") {
-                handleAuthRedirect(uri)
-            }
-        }
     }
-    
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
         return inflater.inflate(R.layout.fragment_login, container, false)
     }
-    
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        
+
         // Initialize UI components
         loginButton = view.findViewById(R.id.btn_login_mal)
         progressBar = view.findViewById(R.id.loading_indicator)
-        
-        // Set up button click
+        statusText = view.findViewById(R.id.tv_status)
+        googleButton = view.findViewById(R.id.btn_login_google)
+        appleButton = view.findViewById(R.id.btn_login_apple)
+        facebookButton = view.findViewById(R.id.btn_login_facebook)
+        twitterButton = view.findViewById(R.id.btn_login_x)
+        inAppButton = view.findViewById(R.id.btn_login_inapp)
+
+        // Main MAL login button
         loginButton?.setOnClickListener {
-            initiateLogin()
+            initiateLogin(OAuthProvider.MAL)
         }
-        
-        // Observe authentication state
+        // Provider quick-buttons. Each delegates to the same OAuth flow
+        // because MAL funnels all providers through the same
+        // /v1/oauth2/authorize endpoint. The "prompt=login" parameter
+        // forces MAL to re-show the login screen even if the user is
+        // already logged in to the chosen provider in the system browser.
+        googleButton?.setOnClickListener {
+            initiateLogin(OAuthProvider.GOOGLE, forceLogin = true)
+        }
+        appleButton?.setOnClickListener {
+            initiateLogin(OAuthProvider.APPLE, forceLogin = true)
+        }
+        facebookButton?.setOnClickListener {
+            initiateLogin(OAuthProvider.FACEBOOK, forceLogin = true)
+        }
+        twitterButton?.setOnClickListener {
+            initiateLogin(OAuthProvider.TWITTER, forceLogin = true)
+        }
+        // "Log in inside the app" — uses the in-app WebView path. The
+        // user does not leave AnimeMate for the auth flow.
+        inAppButton?.setOnClickListener {
+            initiateLogin(OAuthProvider.MAL, forceLogin = false, inApp = true)
+        }
+
+        // Observe the AuthViewModel state for the actual flow
         viewModel.authState.observe(viewLifecycleOwner) { authState ->
             when (authState) {
                 is AuthViewModel.AuthState.Idle -> {
@@ -91,125 +134,145 @@ class LoginFragment : Fragment() {
                 is AuthViewModel.AuthState.Error -> {
                     showLoading(false)
                     Log.e(TAG, "Auth error: ${authState.message}")
+                    statusText?.text = authState.message
                 }
             }
         }
-        
-        // Check if already authenticated
+
+        // Observe the global callback bus — covers the case where the
+        // OAuthCallbackActivity finished before the fragment was
+        // attached (e.g. user backgrounded the app, completed auth in
+        // the browser, then re-foregrounded AnimeMate).
+        AuthCallbackBus.events.observe(viewLifecycleOwner) { event ->
+            when (event) {
+                is AuthCallbackEvent.Success -> {
+                    // Token exchange completed in the callback activity.
+                    // The user has just returned to the app; check setup
+                    // status and navigate.
+                    viewModel.checkUserSetupStatus()
+                }
+                is AuthCallbackEvent.Error -> {
+                    showLoading(false)
+                    statusText?.text = "${event.message} (${event.code})"
+                }
+            }
+        }
+
         if (viewModel.isAuthenticated()) {
             viewModel.checkUserSetupStatus()
         }
     }
-    
+
     /**
-     * Handle intent from MainActivity for deep link handling.
+     * Initiate the login process. The user explicitly asked for an
+     * in-app login experience, so we launch the [WebViewLoginActivity]
+     * by default. The Custom-Tabs / system-browser path is still
+     * available via [OAuthLauncher] for users on devices where the
+     * WebView doesn't behave well (e.g. custom ROMs with broken
+     * third-party cookie policies).
+     *
+     * @param provider Which MAL provider the user wants to log in with
+     *   (only affects the `prompt=login` hint; the actual authorization
+     *   flow always uses the MAL endpoint, which can route to any provider).
+     * @param forceLogin If true, MAL is told to re-show the login screen
+     *   (useful when the user wants to switch accounts).
+     * @param inApp If true (default), launch the in-app WebView login.
+     *   If false, fall back to Chrome Custom Tabs / system browser.
      */
-    fun handleIntent(intent: Intent) {
-        intent.data?.let { uri ->
-            if (uri.scheme == "animerec" && uri.host == "auth") {
-                handleAuthRedirect(uri)
-            }
-        }
-    }
-    
-    /**
-     * Initiate the login process by opening the MAL authorization page.
-     */
-    private fun initiateLogin() {
-        // Generate and store PKCE code verifier
+    private fun initiateLogin(
+        provider: OAuthProvider,
+        forceLogin: Boolean = false,
+        inApp: Boolean = true
+    ) {
         val codeVerifier = OAuthUtil.generateCodeVerifier()
+        val state = OAuthUtil.generateState()
         val secureStorage = SecureStorage(requireContext())
         secureStorage.putString(SecureStorage.CODE_VERIFIER_KEY, codeVerifier)
-
-        // Generate the CSRF state, store it for callback verification
-        val state = OAuthUtil.generateState()
         secureStorage.putString(STATE_KEY, state)
 
-        // Generate code challenge (S256 by default; switch to plain only
-        // when MAL adds S256 support)
-        val codeChallenge = OAuthUtil.generateCodeChallenge(codeVerifier, useS256 = true)
+        val codeChallenge = OAuthUtil.generateCodeChallenge(codeVerifier, useS256 = false)
+        val prompt = if (forceLogin) "login" else null
+        val authUrl = OAuthUtil.buildAuthorizationUrl(
+            codeChallenge = codeChallenge,
+            state = state,
+            useS256 = false,
+            prompt = prompt
+        )
+        statusText?.text = getString(
+            R.string.login_opening_browser,
+            provider.displayName
+        )
+        showLoading(true)
+        if (inApp) {
+            launchInAppBrowser(authUrl)
+        } else {
+            OAuthLauncher.launch(requireContext(), authUrl)
+        }
+    }
 
-        // Build authorization URL
-        val authUrl = OAuthUtil.buildAuthorizationUrl(codeChallenge, state, useS256 = true)
-
-        // Open browser for authentication
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
+    /**
+     * Open the auth URL in our in-app WebView. The user never leaves
+     * AnimeMate — the WebView intercepts the `animerec://auth?…`
+     * redirect itself and runs the token exchange in-process.
+     */
+    private fun launchInAppBrowser(authUrl: String) {
+        val intent = android.content.Intent(
+            requireContext(),
+            WebViewLoginActivity::class.java
+        ).apply {
+            putExtra(WebViewLoginActivity.EXTRA_AUTH_URL, authUrl)
+        }
         startActivity(intent)
     }
 
-    /**
-     * Handle redirect after successful MAL authorization.
-     */
-    private fun handleAuthRedirect(uri: Uri) {
-        viewModel.authState.value = AuthViewModel.AuthState.Loading
-
-        // S2: Verify the state parameter matches what we sent — defends against
-        // CSRF / authorization-code-injection.
-        val secureStorage = SecureStorage(requireContext())
-        val expectedState = secureStorage.getString(STATE_KEY)
-        val actualState = OAuthUtil.extractState(uri)
-        if (expectedState.isNullOrEmpty() || expectedState != actualState) {
-            viewModel.authState.value = AuthViewModel.AuthState.Error("Auth state mismatch (possible CSRF). Please try again.")
-            secureStorage.remove(STATE_KEY)
-            secureStorage.remove(SecureStorage.CODE_VERIFIER_KEY)
-            return
-        }
-        // One-shot: clear the state now that we've validated it
-        secureStorage.remove(STATE_KEY)
-
-        // Extract auth code from URI
-        val authCode = OAuthUtil.extractAuthCode(uri)
-        if (authCode.isNullOrEmpty()) {
-            viewModel.authState.value = AuthViewModel.AuthState.Error("Invalid authorization response")
-            secureStorage.remove(SecureStorage.CODE_VERIFIER_KEY)
-            return
-        }
-
-        // Get stored code verifier
-        val codeVerifier = secureStorage.getString(SecureStorage.CODE_VERIFIER_KEY)
-        if (codeVerifier.isEmpty()) {
-            viewModel.authState.value = AuthViewModel.AuthState.Error("Missing code verifier")
-            return
-        }
-
-        // Exchange code for tokens
-        lifecycleScope.launch {
-            val success = viewModel.exchangeCodeForTokens(authCode, codeVerifier)
-            // S14: clear the code verifier on success too
-            secureStorage.remove(SecureStorage.CODE_VERIFIER_KEY)
-            if (success) {
-                viewModel.checkUserSetupStatus()
-            } else {
-                viewModel.authState.value =
-                    AuthViewModel.AuthState.Error("Failed to exchange code for tokens")
-            }
-        }
-    }
-    
-    /**
-     * Navigate to the appropriate screen based on setup status.
-     */
     private fun navigateToNextScreen(isSetupCompleted: Boolean) {
         if (isSetupCompleted) {
-            // If setup is completed, navigate to home screen
             findNavController().navigate(R.id.action_loginFragment_to_homeFragment)
         } else {
-            // If setup is not completed, navigate to profile setup
             findNavController().navigate(R.id.action_loginFragment_to_profileSetupFragment)
         }
     }
-    
-    /**
-     * Show/hide loading indicator.
-     */
+
     private fun showLoading(isLoading: Boolean) {
         progressBar?.visibility = if (isLoading) View.VISIBLE else View.GONE
         loginButton?.isEnabled = !isLoading
+        googleButton?.isEnabled = !isLoading
+        appleButton?.isEnabled = !isLoading
+        facebookButton?.isEnabled = !isLoading
+        twitterButton?.isEnabled = !isLoading
+        inAppButton?.isEnabled = !isLoading
     }
-    
+
     override fun onDestroyView() {
         super.onDestroyView()
         loginButton = null
         progressBar = null
+        statusText = null
+        googleButton = null
+        appleButton = null
+        facebookButton = null
+        twitterButton = null
+        inAppButton = null
     }
+
+    companion object {
+        // SharedPreferences key for the OAuth state parameter. Kept here so
+        // both this fragment and OAuthCallbackActivity agree on the same key.
+        const val STATE_KEY = "oauth_state"
+    }
+}
+
+/**
+ * Which MAL identity provider the user wants to log in with. All
+ * providers route through the same MAL authorization endpoint; the only
+ * effect of this enum is to control the user-facing button label and
+ * the `prompt=login` parameter that forces MAL to re-show the login
+ * screen.
+ */
+enum class OAuthProvider(val displayName: String) {
+    MAL("MyAnimeList"),
+    GOOGLE("Google"),
+    APPLE("Apple"),
+    FACEBOOK("Facebook"),
+    TWITTER("X")
 }

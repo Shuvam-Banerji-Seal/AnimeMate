@@ -14,8 +14,8 @@ android {
         applicationId "com.animerec.app"
         minSdk 31 // Android 12
         targetSdk 35
-        versionCode 3
-        versionName "1.1.1"
+        versionCode 4
+        versionName "1.1.2"
         
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         
@@ -159,6 +159,12 @@ dependencies {
     
     // Data Store Preferences (for token storage)
     implementation "androidx.datastore:datastore-preferences:1.1.1"
+
+    // AndroidX Browser — for in-app OAuth login via Chrome Custom Tabs.
+    // Custom Tabs give the in-app browser feel (back button, toolbar, etc.)
+    // while sharing the user's logged-in cookies with the system browser,
+    // and they automatically handle the deep-link redirect back to the app.
+    implementation "androidx.browser:browser:1.8.0"
     
     // WorkManager for background tasks
     implementation "androidx.work:work-runtime-ktx:2.10.0"

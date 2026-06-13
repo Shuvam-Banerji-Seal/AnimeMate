@@ -22,8 +22,21 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            
-            <!-- For MAL OAuth redirect -->
+        </activity>
+
+        <!--
+            OAuth callback activity — receives the deep-link redirect from
+            Chrome Custom Tabs (or the system browser) after the user logs
+            in to MAL and clicks "Allow". Sits at singleTask with no UI, then
+            hands control back to MainActivity.
+        -->
+        <activity
+            android:name=".ui.auth.OAuthCallbackActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Translucent.NoTitleBar"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:taskAffinity="">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -33,6 +46,18 @@
                     android:host="auth" />
             </intent-filter>
         </activity>
+
+        <!--
+            In-app WebView login — gives the user a true "log in inside
+            the app" experience using a real WebView. Chosen when the
+            OS does not have a Chrome Custom Tabs provider, or when the
+            user explicitly taps the "Log in inside the app" link.
+        -->
+        <activity
+            android:name=".ui.auth.WebViewLoginActivity"
+            android:exported="false"
+            android:label="@string/login_inapp_title"
+            android:windowSoftInputMode="adjustResize" />
         
         <!-- FileProvider for sharing error log files via email -->
         <provider

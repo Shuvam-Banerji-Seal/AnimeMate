@@ -184,8 +184,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Check intent for OAuth redirect if activity is started with an intent
-        handleIntent(intent)
+        // OAuth redirects are handled by the dedicated OAuthCallbackActivity
+        // (see AndroidManifest); MainActivity just needs to launch the user
+        // into the appropriate starting destination. AuthCallbackBus carries
+        // the result of the callback so any active observer updates UI.
         ErrorLogManager.logEvent(TAG, "LIFECYCLE", "MainActivity.onCreate completed")
     }
 
@@ -194,32 +196,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Handle the case where the app is opened with a deep link
-     * (for OAuth redirect handling in LoginFragment)
+     * Handle the case where the app is reopened from a deep-link tap.
+     * OAuth redirects are now handled by the dedicated [com.animerec.app.ui.auth.OAuthCallbackActivity]
+     * which owns the intent-filter for `animerec://auth` — this method
+     * is kept for future deep-link types and simply records the intent
+     * for diagnostics.
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIntent(intent)
-    }
-
-    private fun handleIntent(intent: Intent?) {
-        intent?.data?.let { uri ->
-            ErrorLogManager.logEvent(TAG, "INTENT", "Handling intent with URI: $uri")
-            if (uri.scheme == "animerec" && uri.host == "auth") {
-                // Find the current fragment
-                val navHostFragment = supportFragmentManager
-                    .findFragmentById(R.id.nav_host_fragment) as NavHostFragment
-                val currentFragment = navHostFragment.childFragmentManager.fragments.firstOrNull()
-
-                // Handle auth redirect in login fragment if it's current
-                if (currentFragment is LoginFragment) {
-                    currentFragment.handleIntent(intent)
-                } else {
-                    // Navigate to login fragment if needed
-                    navController.navigate(R.id.loginFragment)
-                }
-            }
+        intent.data?.let { uri ->
+            ErrorLogManager.logEvent(TAG, "INTENT", "MainActivity onNewIntent: $uri")
         }
     }
 

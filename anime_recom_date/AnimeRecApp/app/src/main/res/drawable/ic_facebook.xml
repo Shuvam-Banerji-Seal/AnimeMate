@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Facebook "f" logo. Source: Facebook brand guidelines.
+    Use as the login icon for "Sign in with Facebook" via MAL.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#1877F2"
+        android:pathData="M24,4C12.95,4 4,12.95 4,24c0,9.97 7.31,18.27 16.79,19.86V29.5h-5.05V24h5.05v-4.13c0,-4.99 2.97,-7.74 7.52,-7.74c2.18,0 4.46,0.39 4.46,0.39v4.9h-2.51c-2.47,0 -3.24,1.53 -3.24,3.11V24h5.51l-0.88,5.5h-4.63v14.36C36.69,42.27 44,33.97 44,24C44,12.95 35.05,4 24,4z" />
+</vector>

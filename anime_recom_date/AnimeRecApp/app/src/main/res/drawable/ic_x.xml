@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    X (formerly Twitter) logo. Source: X brand guidelines.
+    Use as the login icon for "Sign in with X" via MAL.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#000000"
+        android:pathData="M37.3,8h-6.4L24,18.7L17.1,8H10.4l10.4,15.3L10.4,40h6.4L24,29.3L30.9,40h6.7L27.1,23.3L37.3,8z" />
+</vector>

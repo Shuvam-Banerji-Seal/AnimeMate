@@ -41,4 +41,16 @@
         <item name="android:statusBarColor">@color/purple_700</item>
         <item name="android:windowTranslucentStatus">false</item>
     </style>
+
+    <!--
+        Translucent theme for invisible activities (e.g. OAuthCallbackActivity).
+        The activity does its work in onCreate and finishes immediately; this
+        theme ensures the user never sees a flash of an empty window.
+    -->
+    <style name="Theme.Translucent.NoTitleBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>
