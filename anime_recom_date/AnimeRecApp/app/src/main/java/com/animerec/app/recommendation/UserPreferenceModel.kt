@@ -163,6 +163,11 @@ class UserPreferenceModel(context: Context) {
     }
     
     /**
+     * Get the current weight for a specific genre (used by tests and debug UI).
+     */
+    fun getWeight(genre: String): Double = genreWeights[genre] ?: 0.0
+
+    /**
      * Get the user's top preferred genres.
      */
     fun getTopGenres(limit: Int = 5): List<String> {
@@ -172,7 +177,7 @@ class UserPreferenceModel(context: Context) {
             .take(limit)
             .map { it.key }
     }
-    
+
     /**
      * Get the user's disliked genres.
      */
@@ -182,6 +187,11 @@ class UserPreferenceModel(context: Context) {
             .sortedBy { it.value }
             .map { it.key }
     }
+
+    /**
+     * Calculate a preference score for a piece of content. Exposed for tests.
+     */
+    fun scoreForTest(content: AnimeContent, user: User): Double = calculateScore(content, user)
     
     /**
      * Clear all learned preferences.

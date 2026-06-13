@@ -242,17 +242,15 @@ object ErrorLogManager {
                 writer.append("Failed to capture logcat: ${e.message}\n")
             }
 
-            // ── SharedPreferences snapshot ──
-            writer.append("\n── Preferences Snapshot ──\n")
-            try {
-                val prefs = context.getSharedPreferences("anime_repo_prefs", Context.MODE_PRIVATE)
-                writer.append("profile_complete: ${prefs.getBoolean("profile_complete", false)}\n")
-                writer.append("content_preferences: ${prefs.getString("content_preferences", "[]")}\n")
-                writer.append("genre_preferences: ${prefs.getString("genre_preferences", "[]")}\n")
-                writer.append("minimum_rating: ${prefs.getFloat("minimum_rating", 0f)}\n")
-            } catch (e: Exception) {
-                writer.append("Failed to read preferences: ${e.message}\n")
-            }
+            // ── SharedPreferences snapshot (redacted) ──
+            // S5: Previously the user's genre/content preferences and minimum
+            // rating were appended verbatim to the emailed error log. This
+            // is a PII leak — anyone intercepting the email could see the
+            // user's "not_interested" list, favourite genres, and content
+            // preferences. Now we only include key existence + a SHA-256
+            // fingerprint so developers can correlate "user X has
+            // preferences" with prior reports without seeing the values.
+            writer.append(buildPreferencesSnapshot(context))
 
             writer.append("\n=== END OF LOG ===\n")
         }
@@ -286,5 +284,34 @@ object ErrorLogManager {
         val chooser = Intent.createChooser(emailIntent, "Send Error Log via...")
         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(chooser)
+    }
+
+    /**
+     * S5: Build a redacted SharedPreferences snapshot. Only key existence
+     * and a SHA-256 fingerprint of the values are included — no raw
+     * preferences leak in the error log email. Exposed (internal) for
+     * tests.
+     */
+    internal fun buildPreferencesSnapshot(context: Context): String {
+        return buildString {
+            append("\n── Preferences Snapshot (redacted) ──\n")
+            try {
+                val prefs = context.getSharedPreferences("anime_repo_prefs", Context.MODE_PRIVATE)
+                val keys = listOf("profile_complete", "content_preferences", "genre_preferences", "minimum_rating")
+                for (key in keys) {
+                    val has = prefs.contains(key)
+                    append("$key: ${if (has) "set" else "unset"}\n")
+                }
+                val fingerprintSource = (prefs.getString("content_preferences", "")
+                    ?: "") + "|" + (prefs.getString("genre_preferences", "")
+                    ?: "")
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                val hash = digest.digest(fingerprintSource.toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+                append("prefs-fingerprint-sha256: $hash\n")
+            } catch (e: Exception) {
+                append("Failed to read preferences: ${e.message}\n")
+            }
+        }
     }
 }

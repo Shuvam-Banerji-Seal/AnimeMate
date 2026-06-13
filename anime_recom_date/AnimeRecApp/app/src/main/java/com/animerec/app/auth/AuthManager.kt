@@ -164,6 +164,9 @@ class AuthManager(private val context: Context) {
         secureStorage.remove(SecureStorage.ACCESS_TOKEN_KEY)
         secureStorage.remove(SecureStorage.REFRESH_TOKEN_KEY)
         secureStorage.remove(SecureStorage.TOKEN_EXPIRY_KEY)
+        // H14: also wipe code_verifier, oauth state, and any cached profile
+        // data so the next user on this device doesn't inherit state.
+        secureStorage.remove(SecureStorage.CODE_VERIFIER_KEY)
     }
     
     /**

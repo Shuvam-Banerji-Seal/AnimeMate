@@ -33,10 +33,13 @@ import kotlinx.coroutines.launch
  * Fragment for user login via MyAnimeList OAuth.
  */
 class LoginFragment : Fragment() {
-    
+
     private val TAG = "LoginFragment"
     private lateinit var viewModel: AuthViewModel
-    
+
+    // SharedPreferences key for the OAuth state parameter (S2: CSRF protection)
+    private val STATE_KEY = "oauth_state"
+
     // UI components
     private var loginButton: Button? = null
     private var progressBar: ProgressBar? = null
@@ -117,46 +120,67 @@ class LoginFragment : Fragment() {
         val codeVerifier = OAuthUtil.generateCodeVerifier()
         val secureStorage = SecureStorage(requireContext())
         secureStorage.putString(SecureStorage.CODE_VERIFIER_KEY, codeVerifier)
-        
-        // Generate code challenge
-        val codeChallenge = OAuthUtil.generateCodeChallenge(codeVerifier)
-        
+
+        // Generate the CSRF state, store it for callback verification
+        val state = OAuthUtil.generateState()
+        secureStorage.putString(STATE_KEY, state)
+
+        // Generate code challenge (S256 by default; switch to plain only
+        // when MAL adds S256 support)
+        val codeChallenge = OAuthUtil.generateCodeChallenge(codeVerifier, useS256 = true)
+
         // Build authorization URL
-        val authUrl = OAuthUtil.buildAuthorizationUrl(codeChallenge)
-        
+        val authUrl = OAuthUtil.buildAuthorizationUrl(codeChallenge, state, useS256 = true)
+
         // Open browser for authentication
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
         startActivity(intent)
     }
-    
+
     /**
      * Handle redirect after successful MAL authorization.
      */
     private fun handleAuthRedirect(uri: Uri) {
         viewModel.authState.value = AuthViewModel.AuthState.Loading
-        
+
+        // S2: Verify the state parameter matches what we sent — defends against
+        // CSRF / authorization-code-injection.
+        val secureStorage = SecureStorage(requireContext())
+        val expectedState = secureStorage.getString(STATE_KEY)
+        val actualState = OAuthUtil.extractState(uri)
+        if (expectedState.isNullOrEmpty() || expectedState != actualState) {
+            viewModel.authState.value = AuthViewModel.AuthState.Error("Auth state mismatch (possible CSRF). Please try again.")
+            secureStorage.remove(STATE_KEY)
+            secureStorage.remove(SecureStorage.CODE_VERIFIER_KEY)
+            return
+        }
+        // One-shot: clear the state now that we've validated it
+        secureStorage.remove(STATE_KEY)
+
         // Extract auth code from URI
         val authCode = OAuthUtil.extractAuthCode(uri)
         if (authCode.isNullOrEmpty()) {
             viewModel.authState.value = AuthViewModel.AuthState.Error("Invalid authorization response")
+            secureStorage.remove(SecureStorage.CODE_VERIFIER_KEY)
             return
         }
-        
+
         // Get stored code verifier
-        val secureStorage = SecureStorage(requireContext())
         val codeVerifier = secureStorage.getString(SecureStorage.CODE_VERIFIER_KEY)
         if (codeVerifier.isEmpty()) {
             viewModel.authState.value = AuthViewModel.AuthState.Error("Missing code verifier")
             return
         }
-        
+
         // Exchange code for tokens
         lifecycleScope.launch {
             val success = viewModel.exchangeCodeForTokens(authCode, codeVerifier)
+            // S14: clear the code verifier on success too
+            secureStorage.remove(SecureStorage.CODE_VERIFIER_KEY)
             if (success) {
                 viewModel.checkUserSetupStatus()
             } else {
-                viewModel.authState.value = 
+                viewModel.authState.value =
                     AuthViewModel.AuthState.Error("Failed to exchange code for tokens")
             }
         }

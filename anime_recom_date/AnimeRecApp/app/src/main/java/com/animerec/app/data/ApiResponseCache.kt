@@ -11,29 +11,47 @@
 package com.animerec.app.data
 
 import android.util.Log
+import java.util.Collections
 
 /**
- * Simple in-memory cache for API responses.
+ * Thread-safe in-memory cache for API responses with LRU eviction.
+ *
+ * The previous implementation used a plain [mutableMapOf], which throws
+ * ConcurrentModificationException under concurrent get/put. The current
+ * implementation uses a synchronized LinkedHashMap configured for LRU access
+ * order and bounded by [maxSize] entries.
  */
-class ApiResponseCache {
-    
+class ApiResponseCache(private val maxSize: Int = 100) {
+
     private val TAG = "ApiResponseCache"
-    
+
     private data class CacheEntry<T>(
         val data: T,
         val expirationTime: Long
     )
-    
-    private val cache = mutableMapOf<String, CacheEntry<*>>()
-    
+
     /**
-     * Get a cached response if it exists and is not expired.
+     * accessOrder = true → iteration order is "least recently accessed first",
+     * which lets [removeEldestEntry] evict the LRU key when we hit [maxSize].
      */
+    private val cache = object : LinkedHashMap<String, CacheEntry<*>>(
+        /* initialCapacity = */ 16,
+        /* loadFactor = */ 0.75f,
+        /* accessOrder = */ true
+    ) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry<*>>?): Boolean {
+            return size > maxSize
+        }
+    }
+
+    // Synchronize on the cache map for every read/write so we never call
+    // user-supplied lambdas under the lock.
+    private val lock = Any()
+
     @Suppress("UNCHECKED_CAST")
-    fun <T> get(key: String): T? {
+    fun <T> get(key: String): T? = synchronized(lock) {
         val entry = cache[key] as? CacheEntry<T> ?: return null
-        
-        return if (System.currentTimeMillis() < entry.expirationTime) {
+        if (System.currentTimeMillis() < entry.expirationTime) {
             Log.d(TAG, "Cache hit for key: $key")
             entry.data
         } else {
@@ -42,46 +60,36 @@ class ApiResponseCache {
             null
         }
     }
-    
-    /**
-     * Put a response in the cache.
-     * @param key The cache key
-     * @param data The data to cache
-     * @param expirationMs How long until the cache expires (in milliseconds)
-     */
+
     fun <T> put(key: String, data: T, expirationMs: Long) {
         val entry = CacheEntry(data, System.currentTimeMillis() + expirationMs)
-        cache[key] = entry
-        Log.d(TAG, "Cached response for key: $key (expires in ${expirationMs}ms)")
+        synchronized(lock) {
+            cache[key] = entry
+        }
     }
-    
-    /**
-     * Remove a specific entry from the cache.
-     */
+
     fun remove(key: String) {
-        cache.remove(key)
+        synchronized(lock) { cache.remove(key) }
     }
-    
-    /**
-     * Clear all cached entries.
-     */
+
     fun clear() {
-        cache.clear()
-        Log.d(TAG, "Cache cleared")
+        synchronized(lock) {
+            cache.clear()
+            Log.d(TAG, "Cache cleared")
+        }
     }
-    
-    /**
-     * Clear expired entries from the cache.
-     */
+
     fun clearExpired() {
         val currentTime = System.currentTimeMillis()
-        val expiredKeys = cache.filter { it.value.expirationTime < currentTime }.keys
-        expiredKeys.forEach { cache.remove(it) }
-        Log.d(TAG, "Cleared ${expiredKeys.size} expired cache entries")
+        synchronized(lock) {
+            val iter = cache.entries.iterator()
+            while (iter.hasNext()) {
+                if (iter.next().value.expirationTime < currentTime) iter.remove()
+            }
+            Log.d(TAG, "Cleared expired cache entries; size now ${cache.size}")
+        }
     }
-    
-    /**
-     * Get the current cache size.
-     */
-    fun size(): Int = cache.size
+
+    fun size(): Int = synchronized(lock) { cache.size }
 }
+

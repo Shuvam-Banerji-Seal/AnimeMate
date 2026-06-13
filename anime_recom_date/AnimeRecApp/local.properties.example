@@ -1,0 +1,18 @@
+# local.properties.example
+#
+# Copy this file to local.properties (which is git-ignored) and fill in
+# your machine-specific values. NEVER commit local.properties.
+#
+# Required keys:
+#   sdk.dir                          Path to your Android SDK
+#   animemate.keystore               Path to your release keystore (relative to project root)
+#   animemate.keystore.password      Password for the keystore (or set ANIMEMATE_KEYSTORE_PASSWORD env var)
+#   animemate.key.alias              Alias of the release key (or set ANIMEMATE_KEY_ALIAS env var)
+#   animemate.key.password           Password for the release key (or set ANIMEMATE_KEY_PASSWORD env var)
+#
+# Example:
+#   sdk.dir=/Users/me/Library/Android/sdk
+#   animemate.keystore=AnimeMate.keystore
+#   animemate.keystore.password=changeit
+#   animemate.key.alias=AnimeMate
+#   animemate.key.password=changeit

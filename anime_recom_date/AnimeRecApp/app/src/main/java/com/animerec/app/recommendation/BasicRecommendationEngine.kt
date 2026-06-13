@@ -44,12 +44,20 @@ class BasicRecommendationEngine(
     
     private val TAG = "BasicRecommendationEngine"
     
-    // Cache for recommendations to avoid repeated API calls
-    private val recommendationCache = object : java.util.LinkedHashMap<String, Pair<List<AnimeContent>, Long>>(50, 0.75f, true) {
+    // Thread-safe LRU cache for recommendations. accessOrder = true → the
+    // eldest (least-recently-accessed) entry is removed when we exceed
+    // [RECOMMENDATION_CACHE_SIZE]. The previous implementation was a plain
+    // LinkedHashMap corrupted by concurrent async coroutines.
+    private val recommendationCache = object : LinkedHashMap<String, Pair<List<AnimeContent>, Long>>(
+        /* initialCapacity = */ 32,
+        /* loadFactor = */ 0.75f,
+        /* accessOrder = */ true
+    ) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<List<AnimeContent>, Long>>?): Boolean {
-            return size > 50
+            return size > RECOMMENDATION_CACHE_SIZE
         }
     }
+    private val cacheLock = Any()
     
     // Cache expiration time in milliseconds (10 minutes — shorter for more variety)
     private val CACHE_EXPIRATION = 10 * 60 * 1000L
@@ -76,6 +84,8 @@ class BasicRecommendationEngine(
         private const val EXPLOITATION_RATIO = 0.80   // 80% personalised, 20% exploration
         private const val MAX_SAME_GENRE_RATIO = 0.4  // Max 40% from same genre
         
+        private const val RECOMMENDATION_CACHE_SIZE = 50
+        
         // Ranking types for diversified API fetching
         private val ANIME_RANKING_TYPES = listOf("all", "airing", "bypopularity", "favorite", "upcoming")
         private val MANGA_RANKING_TYPES = listOf("all", "bypopularity", "favorite")
@@ -89,9 +99,15 @@ class BasicRecommendationEngine(
             val recsStart = System.currentTimeMillis()
             ErrorLogManager.logEvent(TAG, "RECS", "Starting recommendation generation for user=${user.name}, limit=$limit")
 
-            // Use a time-seeded cache key so results change between sessions
+            // Use a time-seeded cache key so results change between sessions.
+            // The key includes user.id (not name) so two users with the same
+            // name don't share a cache entry. It also includes the genre
+            // preferences and content preferences so that changing preferences
+            // mid-session busts the cache.
             val timeSlot = System.currentTimeMillis() / CACHE_EXPIRATION
-            val cacheKey = "recs_${user.name}_${limit}_$timeSlot"
+            val genresKey = user.genrePreferences.sorted().joinToString(",")
+            val typesKey = user.contentPreferences.sorted().joinToString(",")
+            val cacheKey = "recs_${user.id}_${limit}_${timeSlot}_${genresKey}_${typesKey}"
             val cachedRecommendations = getFromCache(cacheKey)
             if (cachedRecommendations != null) {
                 return@withContext Resource.Success(cachedRecommendations)
@@ -235,28 +251,42 @@ class BasicRecommendationEngine(
     /**
      * Apply diversity injection (adapted from Twitter's diversity mixer).
      * Ensures no single genre dominates the feed.
+     *
+     * Important: the cap is enforced against EVERY genre in an item, not just
+     * the first. An item with genres [Action, Comedy, Romance] counts +1
+     * against each of those three buckets. This prevents the all-Items-bucketed-
+     * as-Action anti-pattern that defeated the 40% cap in the previous
+     * implementation.
      */
     private fun applyDiversityInjection(items: MutableList<AnimeContent>, limit: Int): List<AnimeContent> {
         if (items.size <= 1) return items.take(limit)
-        
+
         val result = mutableListOf<AnimeContent>()
+        // Track count for every genre we've ever seen.
         val genreCounts = mutableMapOf<String, Int>()
-        val maxPerGenre = (limit * MAX_SAME_GENRE_RATIO).toInt().coerceAtLeast(2)
-        
-        // First pass: add items respecting genre caps
+        // Limit per item is ceiling(limit * cap), with floor of 1.
+        val maxPerGenre = (limit * MAX_SAME_GENRE_RATIO).toInt().coerceAtLeast(1)
+
+        fun itemAllowed(item: AnimeContent): Boolean {
+            val genres = item.genres.ifEmpty { listOf("Unknown") }
+            // Allowed iff every genre of this item still has capacity.
+            return genres.all { (genreCounts[it] ?: 0) < maxPerGenre }
+        }
+
+        // First pass: add items respecting multi-genre cap
         for (item in items) {
             if (result.size >= limit) break
-            
-            val dominantGenre = item.genres.firstOrNull() ?: "Unknown"
-            val currentCount = genreCounts.getOrDefault(dominantGenre, 0)
-            
-            if (currentCount < maxPerGenre) {
+            if (itemAllowed(item)) {
                 result.add(item)
-                genreCounts[dominantGenre] = currentCount + 1
+                for (g in item.genres.ifEmpty { listOf("Unknown") }) {
+                    genreCounts[g] = (genreCounts[g] ?: 0) + 1
+                }
             }
         }
-        
-        // Second pass: fill remaining slots with any items not yet added
+
+        // Second pass: fill remaining slots with any items not yet added.
+        // If the first pass yielded fewer than `limit` items because every
+        // candidate was blocked by the cap, we relax the cap and add anyway.
         if (result.size < limit) {
             val resultIds = result.map { it.id }.toSet()
             for (item in items) {
@@ -266,11 +296,13 @@ class BasicRecommendationEngine(
                 }
             }
         }
-        
-        // Final shuffle within small windows to add natural feel
-        // (Twitter interleaves ranked items with exploration items)
+
         return shuffleInWindows(result, windowSize = 4)
     }
+
+    /** Exposed for tests so we can verify the cap behaviour without spinning up the full pipeline. */
+    internal fun applyDiversityInjectionForTest(items: MutableList<AnimeContent>, limit: Int): List<AnimeContent> =
+        applyDiversityInjection(items, limit)
     
     /**
      * Shuffle items within fixed-size windows to add variety
@@ -297,7 +329,7 @@ class BasicRecommendationEngine(
         limit: Int
     ): Resource<List<AnimeContent>> = withContext(Dispatchers.IO) {
         try {
-            val cacheKey = "type_${user.name}_${contentType}_$limit"
+            val cacheKey = "type_${user.id}_${contentType}_${limit}_${user.genrePreferences.sorted().joinToString(",")}"
             val cachedRecommendations = getFromCache(cacheKey)
             if (cachedRecommendations != null) {
                 return@withContext Resource.Success(cachedRecommendations)
@@ -489,56 +521,62 @@ class BasicRecommendationEngine(
     }
     
     override fun clearCache(): Resource<Boolean> {
-        try {
-            recommendationCache.clear()
-            return Resource.Success(true)
+        return try {
+            synchronized(cacheLock) { recommendationCache.clear() }
+            Resource.Success(true)
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing cache", e)
             ErrorLogManager.logEvent(TAG, "ERROR", "Cache clear failed: ${e.message}")
-            return Resource.Error("Error clearing cache: ${e.message}")
+            Resource.Error("Error clearing cache: ${e.message}")
         }
     }
-    
+
     /**
      * Calculate similarity score between two content items.
      */
     private fun calculateSimilarity(content1: AnimeContent, content2: AnimeContent): Double {
         var score = 0.0
-        
+
         val genreOverlap = content1.genres.intersect(content2.genres.toSet()).size
         score += genreOverlap * 10.0
-        
+
         if (content1.rating > 0 && content2.rating > 0) {
             val ratingDiff = Math.abs(content1.rating - content2.rating)
             score += (10.0 - ratingDiff) * 2.0
         }
-        
+
         if (content1.type == content2.type) score += 5.0
         if (content1.status == content2.status) score += 3.0
-        
+
         return score
     }
-    
+
     /**
      * Get recommendations from cache if available and not expired.
      */
     private fun getFromCache(key: String): List<AnimeContent>? {
-        val cachedValue = recommendationCache[key]
-        if (cachedValue != null) {
-            val (recommendations, timestamp) = cachedValue
-            if (System.currentTimeMillis() - timestamp < CACHE_EXPIRATION) {
-                return recommendations
+        return synchronized(cacheLock) {
+            val cachedValue = recommendationCache[key]
+            if (cachedValue != null) {
+                val (recommendations, timestamp) = cachedValue
+                if (System.currentTimeMillis() - timestamp < CACHE_EXPIRATION) {
+                    recommendations
+                } else {
+                    recommendationCache.remove(key)
+                    null
+                }
             } else {
-                recommendationCache.remove(key)
+                null
             }
         }
-        return null
     }
-    
+
     /**
      * Add recommendations to cache.
      */
     private fun addToCache(key: String, recommendations: List<AnimeContent>) {
-        recommendationCache[key] = Pair(recommendations, System.currentTimeMillis())
+        synchronized(cacheLock) {
+            recommendationCache[key] = Pair(recommendations, System.currentTimeMillis())
+        }
     }
 }

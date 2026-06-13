@@ -3,11 +3,33 @@
 **Author:** Shuvam Banerji Seal 
 **License:** MIT
 **Website:** [shuvam-banerji-seal.github.io/AnimeMate](https://shuvam-banerji-seal.github.io/AnimeMate)
+**Version:** 1.1.1
 **Build:** [![Build APK](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml/badge.svg)](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml)
 
 > A dating-style swipe interface for discovering your next favourite anime, manga or light novel — powered by MyAnimeList and a Twitter/X-inspired recommendation engine.
 
 AnimeMate is a native Android app that helps users discover content through a fun, card-based swipe interface. It connects to the [MyAnimeList](https://myanimelist.net/) API v2 to fetch personalised recommendations, manage watchlists, track history, and view detailed statistics — all within a polished Material Design 3 interface that supports both light and dark themes.
+
+---
+
+## What's New in 1.1.1
+
+- **Hardened security (third-party deep audit fix pass):**
+  - OAuth `state` parameter added & verified on callback (CSRF defense per RFC 6749 §10.12).
+  - PKCE upgraded from `plain` to `S256` challenge method.
+  - `SecureStorage` no longer silently falls back to plain `SharedPreferences` on init failure — it now throws `SecureStorageUnavailableException` and wipes any stale plain-prefs file.
+  - Signing credentials moved to `local.properties` (git-ignored) with env-var fallback. `local.properties.example` is provided for safe onboarding.
+  - `ErrorLogManager` no longer emails the user's genre / content preferences verbatim — only key existence and a SHA-256 fingerprint are included.
+  - `runBlocking` in the OkHttp interceptor replaced with a `@Volatile` in-memory token cache warmed up on a background thread.
+  - Network logging is now DEBUG-only.
+- **Recommendation engine fixes:**
+  - `recommendationCache` is now thread-safe (synchronized LRU) and bounded.
+  - Diversity cap is now multi-genre aware (counts against every genre, not just the first).
+  - Cache key uses `user.id` plus genre + content preferences so prefs changes bust the cache.
+- **`RetryInterceptor` only retries idempotent verbs** (GET, HEAD, PUT, DELETE, OPTIONS, TRACE). POST/PATCH are never auto-retried.
+- **42 unit tests** across 7 test classes (was 0). See `CHANGELOG.md` for the full list.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 ---
 
@@ -215,25 +237,43 @@ The app uses **MyAnimeList API v2** with OAuth 2 PKCE authentication.
 - `GET /v2/manga?q=` — Search manga
 
 ### Auth Flow
-1. App generates PKCE code verifier + challenge
-2. Opens MAL authorisation URL in browser
-3. User grants access → redirect to `animerec://auth`
-4. App exchanges auth code for access + refresh tokens
-5. Tokens stored in `EncryptedSharedPreferences`
-6. `AuthManager` handles automatic token refresh with mutex locking
+1. App generates a cryptographically-random PKCE code verifier (43-128 chars)
+2. App generates an S256 challenge = `BASE64URL(SHA-256(verifier))`
+3. App generates a 32-byte anti-CSRF `state` value
+4. App opens MAL authorization URL with `code_challenge`, `code_challenge_method=S256`, and `state` query parameters
+5. User grants access → redirect to `animerec://auth?code=…&state=…`
+6. App verifies the returned `state` matches the stored value (CSRF defense)
+7. App exchanges auth code for access + refresh tokens
+8. Tokens stored in `EncryptedSharedPreferences` (no plain-prefs fallback)
+9. `AuthManager` handles automatic token refresh with mutex locking
+10. On logout, all OAuth state and verifiers are wiped from storage
 
 ---
 
 ## Running Tests
 
 ```bash
-# Unit tests
+# Unit tests (Robolectric + JUnit + MockK + Truth + coroutines-test)
 cd anime_recom_date/AnimeRecApp
 ./gradlew test
 
 # Instrumented tests (requires device or emulator)
 ./gradlew connectedAndroidTest
 ```
+
+### Test Coverage
+
+| Class | Tests | What it verifies |
+|-------|-------|------------------|
+| `OAuthUtilTest` | 10 | PKCE verifier length/charset, S256 challenge correctness, `state` parameter embed/extract, edge cases |
+| `SecureStorageTest` | 7 | Round-trip ops, `isEncrypted` contract (skipped under JVM-only Robolectric) |
+| `ApiResponseCacheTest` | 9 | Round-trip, LRU eviction, **concurrent get/put under 8 threads** (was: crash with CME) |
+| `UserPreferenceModelTest` | 8 | Positive/negative weight deltas, ±10 clamp, `getTopGenres` / `getDislikedGenres` ordering, persistence |
+| `BasicRecommendationEngineTest` | 4 | Diversity cap multi-genre behaviour, soft cap, cache key uses `user.id`, genre-prefs bust cache |
+| `RetryInterceptorTest` | 8 | Idempotent method classification, retryable status codes (429/500/502/503), non-retry of 4xx |
+| `ErrorLogManagerTest` | 2 | Redacted prefs snapshot does NOT contain raw user values (S5) |
+
+**Total: 42 passing tests, 7 skipped (require AndroidKeyStore on a real device).**
 
 ---
 
