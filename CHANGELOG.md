@@ -308,3 +308,91 @@ routing handles the return trip reliably.
   `AnimeMate-1.1.3-debug-debug.apk` (22 MB).
 - Smaller release APK than v1.1.2 (4.5 MB vs 4.6 MB) because the
   `androidx.browser` dependency is gone.
+
+---
+
+## [1.1.4] - 2026-06-13
+
+### "No browser available" hotfix
+
+**The reported bug:** v1.1.3 surfaced a "No browser available" error
+to users on devices/emulators where Chrome was clearly installed.
+The login button would tap, the status text would say "Opening
+browser…", and then immediately flip to a `no_browser` error.
+
+**Root cause:** I had set `Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER`
+on the launch intent in v1.1.3, reasoning (incorrectly) that it
+would force the system to use a real browser rather than a
+WebView shim. The actual semantics of that flag are the **opposite**:
+*"do not deliver this Intent to a component that is a browser"*
+(per the AOSP docs). The only apps that can handle
+`https://myanimelist.net/...` are browsers, so the system filtered
+them all out and `startActivity` threw `ActivityNotFoundException`
+on every device.
+
+The v1.1.2 release had the same flag, but it was masked by the
+Custom Tabs primary path: on real devices Chrome Custom Tabs
+handled the auth, so the system-browser fallback with the broken
+flag was rarely exercised.
+
+### Fix
+
+- **Removed** `Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER` from the
+  launch intent. The flag was a misunderstanding of the Android
+  intent-flag contract.
+- **Added a 3-strategy fallback chain** in `OAuthLauncher.launch`:
+  1. `Intent.ACTION_VIEW` + `FLAG_ACTIVITY_NEW_TASK` (recommended)
+  2. `Intent.createChooser(...)` (force system picker UI)
+  3. `Intent.ACTION_VIEW` without `NEW_TASK` (last resort)
+  Each strategy is wrapped in a `tryStartActivity` helper that
+  swallows `ActivityNotFoundException` and `SecurityException`
+  (some OEM ROMs throw the latter when intents try to leave the
+  app), then moves on to the next strategy.
+- **Added a pre-flight check** — `hasAnyBrowser(context)` queries
+  `PackageManager.queryIntentActivities` for a test `https://`
+  URL. If zero resolvers exist, the launcher skips all 3
+  strategies and surfaces a structured `no_browser` error
+  immediately, with a user-friendly message ("please install
+  Chrome, Firefox, or any other browser and try again").
+- **Surfaced a meaningful error message** instead of just the
+  generic "no_browser" code — the user now sees instructions on
+  what to do next.
+- **Updated `LoginFragment.initiateLogin`** to capture the
+  launcher's `Boolean` return value. If launch fails, the loading
+  indicator is dismissed immediately so the user can retry
+  instead of being stuck on "Opening browser…".
+
+### New tests (regression coverage for the bug)
+
+- **`OAuthLauncherTest`** (8 tests) — Robolectric + MockK
+  - `launch posts no_browser error when no resolver exists for https`
+  - `launch returns true when first strategy succeeds`
+  - `launch falls back to createChooser when strategy 1 throws`
+  - `launch falls back to plain ACTION_VIEW when strategies 1 and 2 throw`
+  - `launch reports no_browser when all 3 strategies throw`
+  - `launch does not set FLAG_ACTIVITY_REQUIRE_NON_BROWSER` (regression test for this exact bug)
+  - `launch strategy 1 sets NEW_TASK so it can launch from a fragment context`
+  - `launch posts no_browser error when no resolver exists for https` (duplicate of #1 for the pre-flight path)
+
+**Total: 68 passing tests, 7 skipped, 0 failing.**
+
+### Build
+
+- Bumped `versionCode = 6`, `versionName = "1.1.4"`.
+- APKs: `AnimeMate-1.1.4-release.apk` (4.5 MB) and
+  `AnimeMate-1.1.4-debug-debug.apk` (22 MB).
+- No new dependencies.
+
+### Lessons
+
+`FLAG_ACTIVITY_REQUIRE_NON_BROWSER` is a **misleadingly-named flag**.
+Despite the "NON_BROWSER" suffix, it does not mean "use a real
+browser" — it means "do not deliver to a browser at all". The
+correct flag for "use a real browser" is to simply not set
+`FLAG_ACTIVITY_REQUIRE_NON_BROWSER` and let the system pick the
+best resolver, falling back to `Intent.createChooser` if the
+system can't pick one.
+
+This is now covered by a regression test in
+`OAuthLauncherTest.launch does not set FLAG_ACTIVITY_REQUIRE_NON_BROWSER` —
+the test will fail loudly if anyone re-introduces the flag.

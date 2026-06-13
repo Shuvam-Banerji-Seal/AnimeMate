@@ -191,8 +191,17 @@ class LoginFragment : Fragment() {
         showLoading(true)
         // Bounce the user out to the system browser. Google / Apple /
         // Facebook / X all block WebView-based OAuth, so this is the
-        // only path that works for all 5 providers.
-        OAuthLauncher.launch(requireContext(), authUrl)
+        // only path that works for all 5 providers. If the launch
+        // fails (e.g. no browser installed), the launcher has already
+        // posted a structured error to AuthCallbackBus which the
+        // fragment observes above — so we just return here.
+        val launched = OAuthLauncher.launch(requireContext(), authUrl)
+        if (!launched) {
+            // The bus will deliver the error to the observer; we
+            // just need to re-enable the buttons so the user can
+            // retry once they install a browser.
+            showLoading(false)
+        }
     }
 
     private fun navigateToNextScreen(isSetupCompleted: Boolean) {

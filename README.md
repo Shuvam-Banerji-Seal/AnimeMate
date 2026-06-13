@@ -3,7 +3,7 @@
 **Author:** Shuvam Banerji Seal 
 **License:** MIT
 **Website:** [shuvam-banerji-seal.github.io/AnimeMate](https://shuvam-banerji-seal.github.io/AnimeMate)
-**Version:** 1.1.3
+**Version:** 1.1.4
 **Build:** [![Build APK](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml/badge.svg)](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml)
 
 > A dating-style swipe interface for discovering your next favourite anime, manga or light novel — powered by MyAnimeList and a Twitter/X-inspired recommendation engine.
@@ -11,6 +11,10 @@
 AnimeMate is a native Android app that helps users discover content through a fun, card-based swipe interface. It connects to the [MyAnimeList](https://myanimelist.net/) API v2 to fetch personalised recommendations, manage watchlists, track history, and view detailed statistics — all within a polished Material Design 3 interface that supports both light and dark themes.
 
 ---
+
+## What's New in 1.1.4
+
+**"No browser available" hotfix.** v1.1.3 surfaced a confusing error on devices that *did* have browsers installed. Root cause: I had set `Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER` on the launch intent, reasoning (wrongly) that it would force the system to use a real browser. The actual semantics of that flag are the opposite: *"do not deliver this Intent to a component that is a browser"*. The only apps that can handle `https://myanimelist.net/...` are browsers, so the system filtered them all out and `startActivity` threw `ActivityNotFoundException`. v1.1.4 removes the flag, adds a 3-strategy fallback chain (ACTION_VIEW → createChooser → plain ACTION_VIEW), a pre-flight `hasAnyBrowser` check, and a user-friendly error message. **Plus a regression test** that fails if anyone re-introduces the flag. **68 passing tests, 0 failing.**
 
 ## What's New in 1.1.3
 
@@ -294,6 +298,7 @@ cd anime_recom_date/AnimeRecApp
 |-------|-------|------------------|
 | `OAuthUtilTest` | 11 | PKCE verifier length/charset, **plain** challenge (MAL default), S256 challenge on demand, `state` parameter embed/extract, edge cases |
 | `OAuthFlowTest` | 8 | `OAuthProvider` enum (5 entries), `buildAuthorizationUrl` with/without `prompt=`, `extractAuthCode/Error/State` from redirect URI |
+| `OAuthLauncherTest` | 8 | **Regression test for the v1.1.3 "no browser" bug**: asserts that `FLAG_ACTIVITY_REQUIRE_NON_BROWSER` is **not** set on the launch intent, the 3-strategy fallback chain (`ACTION_VIEW` + `NEW_TASK` → `createChooser` → plain `ACTION_VIEW`), the pre-flight `hasAnyBrowser` check, and that `no_browser` errors reach `AuthCallbackBus` |
 | `SecureStorageTest` | 7 | Round-trip ops, `isEncrypted` contract (skipped under JVM-only Robolectric) |
 | `ApiResponseCacheTest` | 9 | Round-trip, LRU eviction, **concurrent get/put under 8 threads** (was: crash with CME) |
 | `UserPreferenceModelTest` | 8 | Positive/negative weight deltas, ±10 clamp, `getTopGenres` / `getDislikedGenres` ordering, persistence |
@@ -301,7 +306,7 @@ cd anime_recom_date/AnimeRecApp
 | `RetryInterceptorTest` | 8 | Idempotent method classification, retryable status codes (429/500/502/503), non-retry of 4xx |
 | `ErrorLogManagerTest` | 2 | Redacted prefs snapshot does NOT contain raw user values (S5) |
 
-**Total: 50 passing tests, 7 skipped (require AndroidKeyStore on a real device).**
+**Total: 68 passing tests, 7 skipped (require AndroidKeyStore on a real device).**
 
 ---
 
