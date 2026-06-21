@@ -153,6 +153,19 @@ class OAuthLauncherTest {
         assertThat(hasNewTask).isTrue()
     }
 
+    @Test
+    fun `launch URI is preserved in the launch intent`() {
+        // The whole point of this launcher is to bounce the user to
+        // MAL's auth URL. Make sure the URL survives intact.
+        val authUrl = "https://myanimelist.net/v1/oauth2/authorize?response_type=code&client_id=abc&state=xyz&code_challenge=challenge&code_challenge_method=plain&redirect_uri=animerec%3A%2F%2Fauth"
+        var capturedIntent: Intent? = null
+        val context = makeContextCapturingIntent { intent ->
+            capturedIntent = intent
+        }
+        OAuthLauncher.launch(context, authUrl)
+        assertThat(capturedIntent?.data?.toString()).isEqualTo(authUrl)
+    }
+
     // ---- Helpers ----
 
     private fun makeContextWithResolvers(resolvers: List<ResolveInfo>): Context {

@@ -396,3 +396,81 @@ system can't pick one.
 This is now covered by a regression test in
 `OAuthLauncherTest.launch does not set FLAG_ACTIVITY_REQUIRE_NON_BROWSER` —
 the test will fail loudly if anyone re-introduces the flag.
+
+---
+
+## [1.1.5] - 2026-06-13
+
+### Login flow hard-fix — "still broken" after v1.1.4
+
+v1.1.4 fixed the browser-launch path, but the user reported the
+login was *still* broken. Audit found two latent bugs in the
+deep-link return path:
+
+### Bug A: `runBlocking` on the main thread + lifecycle races
+
+`OAuthCallbackActivity.handleIntent` used to call
+`runBlocking { authManager.exchangeCodeForTokens(code, codeVerifier) }`
+on the main thread. This blocked the activity for the duration
+of the network request. While blocked, lifecycle events were
+queued but couldn't run. On slow networks or when OkHttp's
+interceptor `runBlocking` was already in flight, the activity
+could time out. `bringMainToFront()` could be called before the
+token exchange completed — the user landed back on MainActivity
+with no tokens.
+
+**Fix:** Replaced `runBlocking` with a per-activity
+`CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)`.
+Token exchange runs on `Dispatchers.IO`. `bringMainToFront()`
+is called *after* the exchange completes. Scope cancelled in
+`onDestroy()`.
+
+### Bug B: Bus event lost when process is killed mid-flight
+
+If Android killed the process between the browser redirect and
+`OAuthCallbackActivity` finishing, the bus event was lost. The
+user would re-open the app, see the splash, and if timing was
+unlucky, land on the login fragment with no indication that
+auth had just succeeded.
+
+**Fix:** OAuthCallbackActivity now writes a
+`pending_auth_success` flag to `SecureStorage` after a
+successful token exchange, *in addition* to posting the bus
+event. `LoginFragment.onViewCreated` and `onResume` both check
+the flag, clear it, and re-post the bus event. This survives
+process death because EncryptedSharedPreferences is persisted
+to disk.
+
+### Bug C: `bringMainToFront` could fail silently
+
+The previous version used `packageManager.getLaunchIntentForPackage`.
+If the launch intent was null (rare ROMs), the user silently
+stayed in the browser.
+
+**Fix:** Try `setClassName("com.animerec.app.ui.MainActivity")`
+first (explicit class, always works), then fall back to
+`getLaunchIntentForPackage`. Log loudly at each step.
+
+### Other improvements
+
+- **`OAuthCallbackActivity.onNewIntent`** now calls `setIntent(intent)`.
+- **`LoginFragment.onResume`** also checks the pending flag.
+- **Better logging** at every step.
+
+### Tests
+
+**72 passing tests, 10 skipped, 0 failing.**
+
+New `PendingAuthFlagTest` (3 tests, all skipped on JVM Robolectric
+because AndroidKeyStore isn't available; runs on real device or
+under `connectedAndroidTest`):
+- Default value is `false`
+- Written value reads back as `true`
+- Survives "process restart" (re-instantiation of SecureStorage)
+
+### Build
+
+- Bumped `versionCode = 7`, `versionName = "1.1.5"`.
+- APKs: `AnimeMate-1.1.5-release.apk` (4.5 MB) and
+  `AnimeMate-1.1.5-debug-debug.apk` (22 MB).
+- No new dependencies.

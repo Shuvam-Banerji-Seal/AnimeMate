@@ -154,6 +154,32 @@ class LoginFragment : Fragment() {
         if (viewModel.isAuthenticated()) {
             viewModel.checkUserSetupStatus()
         }
+
+        // Belt-and-braces recovery: if a previous OAuthCallbackActivity
+        // already finished token exchange but the process was killed
+        // before the bus event was observed, the pending flag will
+        // still be set in SecureStorage. Detect that here, clear the
+        // flag, and navigate to home.
+        val secureStorage = SecureStorage(requireContext())
+        if (secureStorage.getBoolean(PENDING_AUTH_SUCCESS_KEY, false)) {
+            Log.d(TAG, "Pending auth success flag detected — recovering")
+            secureStorage.putBoolean(PENDING_AUTH_SUCCESS_KEY, false)
+            // Also re-post the bus event so any active observer fires.
+            AuthCallbackBus.postSuccess()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Same recovery check, but for the case where the fragment
+        // was paused (e.g. user opened the browser) and the callback
+        // activity finished while we were paused.
+        val secureStorage = SecureStorage(requireContext())
+        if (secureStorage.getBoolean(PENDING_AUTH_SUCCESS_KEY, false)) {
+            Log.d(TAG, "Pending auth success flag detected on resume — recovering")
+            secureStorage.putBoolean(PENDING_AUTH_SUCCESS_KEY, false)
+            AuthCallbackBus.postSuccess()
+        }
     }
 
     /**

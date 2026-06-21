@@ -3,7 +3,7 @@
 **Author:** Shuvam Banerji Seal 
 **License:** MIT
 **Website:** [shuvam-banerji-seal.github.io/AnimeMate](https://shuvam-banerji-seal.github.io/AnimeMate)
-**Version:** 1.1.4
+**Version:** 1.1.5
 **Build:** [![Build APK](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml/badge.svg)](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml)
 
 > A dating-style swipe interface for discovering your next favourite anime, manga or light novel — powered by MyAnimeList and a Twitter/X-inspired recommendation engine.
@@ -11,6 +11,16 @@
 AnimeMate is a native Android app that helps users discover content through a fun, card-based swipe interface. It connects to the [MyAnimeList](https://myanimelist.net/) API v2 to fetch personalised recommendations, manage watchlists, track history, and view detailed statistics — all within a polished Material Design 3 interface that supports both light and dark themes.
 
 ---
+
+## What's New in 1.1.5
+
+**Login flow hard-fix.** v1.1.4 fixed the browser-launch path, but the user reported the login was *still* broken. Audit found three latent bugs:
+
+1. **`runBlocking` on the main thread** in `OAuthCallbackActivity` blocked the activity for the duration of the token exchange. On slow networks, lifecycle events queued and the activity timed out, with `bringMainToFront()` called *before* tokens were saved. **Fix:** Replaced with a per-activity `CoroutineScope`; token exchange runs on `Dispatchers.IO`.
+2. **Bus event lost on process death.** If Android killed the process between the browser redirect and the callback finishing, the bus event was lost. **Fix:** Added a `pending_auth_success` flag in `SecureStorage`. `LoginFragment` checks this flag in `onViewCreated` and `onResume`, clears it, and re-posts the bus event. Survives process death because EncryptedSharedPreferences is on disk.
+3. **`bringMainToFront` could fail silently** if the launch intent was null on some ROMs. **Fix:** Try `setClassName` first (always works), then fall back to `getLaunchIntentForPackage`. Log loudly.
+
+**72 passing tests, 10 skipped, 0 failing.**
 
 ## What's New in 1.1.4
 
