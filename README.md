@@ -3,7 +3,7 @@
 **Author:** Shuvam Banerji Seal 
 **License:** MIT
 **Website:** [shuvam-banerji-seal.github.io/AnimeMate](https://shuvam-banerji-seal.github.io/AnimeMate)
-**Version:** 1.1.5
+**Version:** 1.1.6
 **Build:** [![Build APK](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml/badge.svg)](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml)
 
 > A dating-style swipe interface for discovering your next favourite anime, manga or light novel — powered by MyAnimeList and a Twitter/X-inspired recommendation engine.
@@ -11,6 +11,17 @@
 AnimeMate is a native Android app that helps users discover content through a fun, card-based swipe interface. It connects to the [MyAnimeList](https://myanimelist.net/) API v2 to fetch personalised recommendations, manage watchlists, track history, and view detailed statistics — all within a polished Material Design 3 interface that supports both light and dark themes.
 
 ---
+
+## What's New in 1.1.6
+
+**"No browser available" — actual root cause fix.** v1.1.4 added a pre-flight `hasAnyBrowser` check that called `PackageManager.queryIntentActivities()`. On Android 11+ (API 30+), that call returns **empty** for every browser because of the [package visibility rules](https://developer.android.com/training/package-visibility) — apps can only see other apps that match a declared `<queries>` entry in their manifest. Without `<queries>`, the pre-flight check said "no browsers found" on every Android 11+ device, even when Chrome was installed.
+
+**v1.1.6 fixes this three ways:**
+1. **Removed** the pre-flight check entirely. It was over-engineering — `Intent.ACTION_VIEW` is dispatched to the default browser, and if no browser is installed, `startActivity` throws `ActivityNotFoundException` which we already catch.
+2. **Simplified** `OAuthLauncher` back to v1.1.1's shape: one `Intent.ACTION_VIEW` call, one try/catch.
+3. **Added `<queries>`** to the manifest declaring the `https://`, `http://`, and `animerec://auth` query intents. Any future code that needs to query for browsers will now work on Android 11+.
+
+**71 passing tests, 10 skipped, 0 failing.**
 
 ## What's New in 1.1.5
 

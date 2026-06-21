@@ -474,3 +474,55 @@ under `connectedAndroidTest`):
 - APKs: `AnimeMate-1.1.5-release.apk` (4.5 MB) and
   `AnimeMate-1.1.5-debug-debug.apk` (22 MB).
 - No new dependencies.
+
+---
+
+## [1.1.6] - 2026-06-22
+
+### "No browser available" — actual root cause fix
+
+**The reported bug (post-v1.1.5):** "it shows no browser is available on the device while i have browsers."
+
+**The actual root cause:** v1.1.4 introduced a pre-flight `hasAnyBrowser(context)` check that called `PackageManager.queryIntentActivities()` for the `https://` scheme. On **Android 11+ (API 30+)**, this call returns **empty** for every browser, even when Chrome, Firefox, Samsung Internet, etc. are installed. This is because of the [package visibility rules](https://developer.android.com/training/package-visibility) introduced in Android 11: an app can only see other apps that match a declared `<queries>` entry in its manifest, are in the same package signature, or are explicit OS exemptions.
+
+Without `<queries>`, my pre-flight check said "no browsers found" on every Android 11+ device. The "no_browser" error was a false positive.
+
+### Fix
+
+- **Removed** the pre-flight `hasAnyBrowser` check. The whole point of v1.1.1 was that this check is unnecessary — `Intent.ACTION_VIEW` is dispatched to the user's default browser, and if no browser is installed (vanilla AOSP emulator), `startActivity` throws `ActivityNotFoundException` which we already catch. The check was over-engineering, period.
+- **Simplified** `OAuthLauncher` back to v1.1.1's straightforward shape: one `Intent.ACTION_VIEW` call, one try/catch, done.
+- **Added `<queries>`** to `AndroidManifest.xml` declaring the `https://`, `http://`, and `animerec://auth` query intents. This is the manifest-level fix for package visibility. Even though the pre-flight check is gone, this declaration is good practice — any future code that needs to query for browsers (e.g. share-target selection, "open in browser" feature) will now work correctly on Android 11+.
+- **Improved error messages**:
+  - `no_browser` — "No browser is available to complete the sign-in. Please install Chrome, Firefox, or any other browser and try again."
+  - `security_error` — "System blocked the browser launch. Please check your app permissions and try again." (handles the rare case where an OEM ROM throws `SecurityException` on outbound intents)
+
+### The login flow now
+
+1. User taps the **Login with MyAnimeList** button (or any of the 4 provider quick-buttons).
+2. `OAuthLauncher.launch()` builds an `Intent.ACTION_VIEW` for the MAL authorization URL and calls `startActivity`.
+3. The OS dispatches to the user's default browser (Chrome, Firefox, Samsung Internet, etc.).
+4. The user logs in inside their browser. For third-party providers (Google / Apple / Facebook / X), MAL routes through the provider's own OAuth — the user never enters their provider password in AnimeMate.
+5. MAL redirects to `animerec://auth?code=…&state=…` — the OS routes this to `OAuthCallbackActivity` (declared in the manifest with its own intent-filter).
+6. `OAuthCallbackActivity` verifies the CSRF state, exchanges the code for tokens, writes a `pending_auth_success` flag to `SecureStorage` (v1.1.5), posts to `AuthCallbackBus`, and brings `MainActivity` to the front.
+7. `LoginFragment` checks the pending flag and the bus, navigates to home.
+
+### Tests
+
+**71 passing tests, 10 skipped, 0 failing.**
+
+`OAuthLauncherTest` rewritten for the simpler launcher:
+
+- `launch invokes startActivity with ACTION_VIEW and the auth URL`
+- `launch sets FLAG_ACTIVITY_NEW_TASK so it works from a fragment context`
+- `launch does NOT set FLAG_ACTIVITY_REQUIRE_NON_BROWSER (v1.1.3 regression test)` — still pinned so nobody reintroduces the bad flag
+- `launch preserves the full URL in the launch intent`
+- `launch returns true on successful startActivity`
+- `launch posts no_browser error when startActivity throws ActivityNotFoundException`
+- `launch posts security_error when startActivity throws SecurityException`
+
+### Build
+
+- Bumped `versionCode = 8`, `versionName = "1.1.6"`.
+- APKs: `AnimeMate-1.1.6-release.apk` (4.5 MB) and `AnimeMate-1.1.6-debug-debug.apk` (22 MB).
+- No new dependencies.
+- Manifest: added `<queries>` block at the top of the manifest (3 intent entries).

@@ -4,6 +4,39 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+        Package visibility (Android 11+, API 30+).
+
+        By default, apps on API 30+ can only see other apps that
+        match a declared <queries> entry, are in the same package
+        signature, or are explicit OS exemptions. Without this,
+        PackageManager.queryIntentActivities() for the https
+        scheme returns empty even when Chrome / Firefox / Samsung
+        Internet is installed — and OAuth flows that bounce out
+        to the system browser break silently.
+
+        We declare the two query intents we actually need:
+          1. https:// (browsers) — for the OAuth launcher's
+             "is there a browser?" check, and any future code
+             that needs to know which apps handle http(s).
+          2. animerec:// (our own scheme) — for the OAuth callback
+             activity's intent-filter matching.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="animerec" android:host="auth" />
+        </intent>
+    </queries>
+
     <application
         android:name=".AnimeRecApp"
         android:allowBackup="true"
