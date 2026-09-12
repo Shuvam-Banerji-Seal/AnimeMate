@@ -95,7 +95,7 @@ class AnimeRepositoryImpl(
         return try {
             val response = apiClient.service.getAnimeRecommendations(
                 limit = limit,
-                fields = AnimeRecApp.ANIME_FIELDS
+                fields = AnimeRecApp.ANIME_LIST_FIELDS
             )
             
             if (response.isSuccessful && response.body() != null) {
@@ -116,7 +116,7 @@ class AnimeRepositoryImpl(
             val response = apiClient.service.searchAnime(
                 query = query,
                 limit = limit,
-                fields = AnimeRecApp.ANIME_FIELDS
+                fields = AnimeRecApp.ANIME_LIST_FIELDS
             )
             
             if (response.isSuccessful && response.body() != null) {
@@ -137,7 +137,7 @@ class AnimeRepositoryImpl(
             val response = apiClient.service.searchManga(
                 query = query,
                 limit = limit,
-                fields = AnimeRecApp.MANGA_FIELDS
+                fields = AnimeRecApp.MANGA_LIST_FIELDS
             )
             
             if (response.isSuccessful && response.body() != null) {
@@ -157,7 +157,7 @@ class AnimeRepositoryImpl(
         return try {
             val response = apiClient.service.getAnimeDetails(
                 animeId = id,
-                fields = AnimeRecApp.ANIME_FIELDS
+                fields = AnimeRecApp.ANIME_DETAIL_FIELDS
             )
             
             if (response.isSuccessful && response.body() != null) {
@@ -176,7 +176,7 @@ class AnimeRepositoryImpl(
         return try {
             val response = apiClient.service.getMangaDetails(
                 mangaId = id,
-                fields = AnimeRecApp.MANGA_FIELDS
+                fields = AnimeRecApp.MANGA_DETAIL_FIELDS
             )
             
             if (response.isSuccessful && response.body() != null) {
@@ -197,7 +197,7 @@ class AnimeRepositoryImpl(
                 apiClient.service.getAnimeRankings(
                     rankingType = rankingType,
                     limit = limit * 2,
-                    fields = AnimeRecApp.ANIME_FIELDS
+                    fields = AnimeRecApp.ANIME_LIST_FIELDS
                 )
             }
             
@@ -227,7 +227,7 @@ class AnimeRepositoryImpl(
             val response = apiClient.service.getMangaRankings(
                 rankingType = rankingType,
                 limit = limit * 2,
-                fields = AnimeRecApp.MANGA_FIELDS
+                fields = AnimeRecApp.MANGA_LIST_FIELDS
             )
             
             if (response.isSuccessful && response.body() != null) {
@@ -256,7 +256,7 @@ class AnimeRepositoryImpl(
             val response = apiClient.service.getMangaRankings(
                 rankingType = rankingType,
                 limit = limit * 2,
-                fields = AnimeRecApp.MANGA_FIELDS
+                fields = AnimeRecApp.MANGA_LIST_FIELDS
             )
             
             if (response.isSuccessful && response.body() != null) {
@@ -284,7 +284,7 @@ class AnimeRepositoryImpl(
             val response = apiClient.service.getAnimeRankings(
                 rankingType = rankingType,
                 limit = limit,
-                fields = AnimeRecApp.ANIME_FIELDS
+                fields = AnimeRecApp.ANIME_LIST_FIELDS
             )
             
             if (response.isSuccessful && response.body() != null) {
@@ -306,7 +306,7 @@ class AnimeRepositoryImpl(
                 year = year,
                 season = season,
                 limit = limit,
-                fields = AnimeRecApp.ANIME_FIELDS
+                fields = AnimeRecApp.ANIME_LIST_FIELDS
             )
             
             if (response.isSuccessful && response.body() != null) {
@@ -327,7 +327,7 @@ class AnimeRepositoryImpl(
             val response = ErrorLogManager.logTimed(TAG, "API", "getUserAnimeList(status=$status)") {
                 apiClient.service.getUserAnimeList(
                     status = status,
-                    fields = AnimeRecApp.ANIME_FIELDS
+                    fields = AnimeRecApp.ANIME_LIST_FIELDS
                 )
             }
             
@@ -349,7 +349,7 @@ class AnimeRepositoryImpl(
             val response = ErrorLogManager.logTimed(TAG, "API", "getUserMangaList(status=$status)") {
                 apiClient.service.getUserMangaList(
                     status = status,
-                    fields = AnimeRecApp.MANGA_FIELDS
+                    fields = AnimeRecApp.MANGA_LIST_FIELDS
                 )
             }
             

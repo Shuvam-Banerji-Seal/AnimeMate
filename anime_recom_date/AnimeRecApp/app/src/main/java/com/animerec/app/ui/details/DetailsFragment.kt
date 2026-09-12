@@ -50,6 +50,8 @@ class DetailsFragment : Fragment() {
     private var titleTextView: TextView? = null
     private var typeAndStatusTextView: TextView? = null
     private var ratingTextView: TextView? = null
+    private var rankTextView: TextView? = null
+    private var creditsTextView: TextView? = null
     private var synopsisTextView: TextView? = null
     private var genresChipGroup: ChipGroup? = null
     private var watchStatusButton: Button? = null
@@ -92,6 +94,8 @@ class DetailsFragment : Fragment() {
         titleTextView = view.findViewById(R.id.titleTextView)
         typeAndStatusTextView = view.findViewById(R.id.typeAndStatusTextView)
         ratingTextView = view.findViewById(R.id.ratingTextView)
+        rankTextView = view.findViewById(R.id.rankTextView)
+        creditsTextView = view.findViewById(R.id.creditsTextView)
         synopsisTextView = view.findViewById(R.id.synopsisTextView)
         genresChipGroup = view.findViewById(R.id.genresChipGroup)
         watchStatusButton = view.findViewById(R.id.watchStatusButton)
@@ -185,6 +189,30 @@ class DetailsFragment : Fragment() {
             ratingTextView?.visibility = View.GONE
         }
         
+        // MAL rankings
+        val ranks = listOfNotNull(
+            content.rank?.let { "Ranked #$it" },
+            content.popularity?.let { "Popularity #$it" }
+        )
+        rankTextView?.text = ranks.joinToString("  ·  ")
+        rankTextView?.visibility = if (ranks.isEmpty()) View.GONE else View.VISIBLE
+
+        // Studio / author, source medium, episode length, community size.
+        // Every one of these already came back on the API response and was
+        // previously thrown away by the mapping layer.
+        val credits = buildList {
+            (content.studios + content.authors).takeIf { it.isNotEmpty() }
+                ?.let { add(it.joinToString(", ")) }
+            content.source.takeIf { it.isNotBlank() }
+                ?.let { add("Source: ${it.replace('_', ' ')}") }
+            content.averageEpisodeDurationSeconds?.takeIf { it > 0 }
+                ?.let { add("${it / 60} min/ep") }
+            content.numListUsers.takeIf { it > 0 }
+                ?.let { add("${formatCompact(it)} members") }
+        }
+        creditsTextView?.text = credits.joinToString("  ·  ")
+        creditsTextView?.visibility = if (credits.isEmpty()) View.GONE else View.VISIBLE
+
         // Set synopsis
         synopsisTextView?.text = content.synopsis
         
@@ -255,6 +283,13 @@ class DetailsFragment : Fragment() {
         }
     }
     
+    /** 3_200_000 -> "3.2M", 45_000 -> "45K". */
+    private fun formatCompact(value: Int): String = when {
+        value >= 1_000_000 -> String.format("%.1fM", value / 1_000_000.0)
+        value >= 1_000 -> "${value / 1_000}K"
+        else -> value.toString()
+    }
+
     private fun formatStatus(status: String): String {
         return when (status) {
             "currently_airing" -> "Currently Airing"
@@ -294,6 +329,8 @@ class DetailsFragment : Fragment() {
         titleTextView = null
         typeAndStatusTextView = null
         ratingTextView = null
+        rankTextView = null
+        creditsTextView = null
         synopsisTextView = null
         genresChipGroup = null
         watchStatusButton = null

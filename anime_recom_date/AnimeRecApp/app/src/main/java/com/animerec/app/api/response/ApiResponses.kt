@@ -57,7 +57,13 @@ data class AnimeDetailsResponse(
             airingStatus = status ?: "",
             mediaType = mediaType ?: "",
             inWatchlist = myListStatus?.status == "plan_to_watch",
-            isCompleted = myListStatus?.status == "completed"
+            isCompleted = myListStatus?.status == "completed",
+            studios = studios?.map { it.name } ?: listOf(),
+            rank = rank,
+            popularity = popularity,
+            numListUsers = numListUsers ?: 0,
+            source = source ?: "",
+            averageEpisodeDurationSeconds = averageEpisodeDuration
         )
     }
 }
@@ -97,7 +103,11 @@ data class MangaDetailsResponse(
             userScore = myListStatus?.score,
             mediaType = mediaType ?: "",
             inWatchlist = myListStatus?.status == "plan_to_read",
-            isCompleted = myListStatus?.status == "completed"
+            isCompleted = myListStatus?.status == "completed",
+            authors = authors?.mapNotNull { it.displayName() } ?: listOf(),
+            rank = rank,
+            popularity = popularity,
+            numListUsers = numListUsers ?: 0
         )
     }
 }
@@ -220,6 +230,20 @@ data class AuthorNode(
     @SerializedName("first_name") val firstName: String? = null,
     @SerializedName("last_name") val lastName: String? = null
 )
+
+/**
+ * "Last, First (Role)" for display, or null when MAL gives us no name at all.
+ * Either name part can be missing, so they're joined rather than assumed.
+ */
+fun Author.displayName(): String? {
+    val name = listOfNotNull(
+        node?.lastName?.takeIf { it.isNotBlank() },
+        node?.firstName?.takeIf { it.isNotBlank() }
+    ).joinToString(", ")
+    if (name.isBlank()) return null
+    val roleLabel = role?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+    return "$name$roleLabel"
+}
 
 data class Ranking(
     @SerializedName("rank") val rank: Int

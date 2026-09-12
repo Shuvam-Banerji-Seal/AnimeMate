@@ -99,6 +99,43 @@
             app:layout_constraintTop_toTopOf="@+id/typeAndStatusTextView"
             tools:text="★ 9.1" />
 
+        <!--
+            Facts MyAnimeList already returns on every request and the app used
+            to discard: score/popularity rank, studio or author, original
+            source medium, episode length and list-user count.
+        -->
+        <TextView
+            android:id="@+id/rankTextView"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="16dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/typeAndStatusTextView"
+            tools:text="Ranked #3  ·  Popularity #29"
+            tools:visibility="visible" />
+
+        <TextView
+            android:id="@+id/creditsTextView"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="16dp"
+            android:alpha="0.8"
+            android:textSize="13sp"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/rankTextView"
+            tools:text="Bones  ·  Source: manga  ·  24 min/ep  ·  3.2M members"
+            tools:visibility="visible" />
+
         <TextView
             android:id="@+id/synopsisLabel"
             android:layout_width="wrap_content"
@@ -109,7 +146,7 @@
             android:textSize="18sp"
             android:textStyle="bold"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/typeAndStatusTextView" />
+            app:layout_constraintTop_toBottomOf="@+id/creditsTextView" />
 
         <TextView
             android:id="@+id/synopsisTextView"

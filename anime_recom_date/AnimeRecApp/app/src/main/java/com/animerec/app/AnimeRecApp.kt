@@ -77,9 +77,36 @@ class AnimeRecApp : Application(), ComponentCallbacks2 {
         const val STATUS_READING = "reading"
         const val STATUS_PLAN_TO_READ = "plan_to_read"
         
-        // API field groups to request together
-        const val ANIME_FIELDS = "id,title,main_picture,alternative_titles,synopsis,mean,rank,popularity,num_list_users,media_type,status,genres,my_list_status,num_episodes,start_season,broadcast,source,average_episode_duration,rating,pictures,background,related_anime,related_manga,recommendations,studios,statistics"
-        const val MANGA_FIELDS = "id,title,main_picture,alternative_titles,synopsis,mean,rank,popularity,num_list_users,media_type,status,genres,my_list_status,num_volumes,num_chapters,authors{first_name,last_name},pictures,background,related_anime,related_manga,recommendations"
+        // ── API field groups ──────────────────────────────────────────────
+        //
+        // Split by call site. A single field set was previously used for
+        // everything, so every ranking, search and list request asked MAL for
+        // `pictures`, `background`, `related_anime`, `related_manga` and
+        // `recommendations` — none of which are even parsed by the response
+        // models, and each of which carries a nested array per item. At 40
+        // items per ranking call, across five ranking types, per content type,
+        // that is a lot of payload fetched and discarded on every refresh.
+        //
+        // Lists get what a card or row can actually display; the detail screen
+        // asks for the rest for exactly one item at a time.
+
+        /** Fields a card, list row or search result can render. */
+        const val ANIME_LIST_FIELDS = "id,title,main_picture,alternative_titles,synopsis,mean,rank,popularity,num_list_users,media_type,status,genres,my_list_status,num_episodes,start_season,source,average_episode_duration,rating,studios"
+
+        /** Everything above, plus the heavy per-title extras. */
+        const val ANIME_DETAIL_FIELDS = "$ANIME_LIST_FIELDS,broadcast,background,related_anime,related_manga,recommendations,statistics"
+
+        /** Fields a manga/novel card, list row or search result can render. */
+        const val MANGA_LIST_FIELDS = "id,title,main_picture,alternative_titles,synopsis,mean,rank,popularity,num_list_users,media_type,status,genres,my_list_status,num_volumes,num_chapters,authors{first_name,last_name}"
+
+        /** Everything above, plus the heavy per-title extras. */
+        const val MANGA_DETAIL_FIELDS = "$MANGA_LIST_FIELDS,background,related_anime,related_manga,recommendations"
+
+        @Deprecated("Use ANIME_LIST_FIELDS or ANIME_DETAIL_FIELDS", ReplaceWith("ANIME_LIST_FIELDS"))
+        const val ANIME_FIELDS = ANIME_LIST_FIELDS
+
+        @Deprecated("Use MANGA_LIST_FIELDS or MANGA_DETAIL_FIELDS", ReplaceWith("MANGA_LIST_FIELDS"))
+        const val MANGA_FIELDS = MANGA_LIST_FIELDS
         
         // Database name
         const val DATABASE_NAME = "anime_rec_database"

@@ -35,7 +35,27 @@ data class AnimeContent(
     val mediaType: String = "",
     val startDate: String? = null,
     val endDate: String? = null,
-    val numEpisodes: Int? = null
+    val numEpisodes: Int? = null,
+
+    // ── Fields MAL already returns ────────────────────────────────────────
+    // These were requested from the API and parsed into the response DTOs,
+    // then dropped on the floor by the mapping layer. Carrying them costs
+    // nothing extra over the wire and makes the detail screen (and studio
+    // preference learning) possible.
+    /** Animation studios (anime) — empty for manga and novels. */
+    val studios: List<String> = listOf(),
+    /** Authors (manga/novels) — empty for anime. */
+    val authors: List<String> = listOf(),
+    /** MAL score rank, 1 = highest rated. Null when unranked. */
+    val rank: Int? = null,
+    /** MAL popularity rank, 1 = most popular. Null when unranked. */
+    val popularity: Int? = null,
+    /** How many MAL users have this on a list. */
+    val numListUsers: Int = 0,
+    /** Original medium, e.g. "manga", "light_novel", "original". */
+    val source: String = "",
+    /** Mean episode length in seconds (anime only). */
+    val averageEpisodeDurationSeconds: Int? = null
 ) {
     /**
      * Namespaced identity for this item.

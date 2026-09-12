@@ -104,6 +104,15 @@ class UserPreferenceModel(context: Context) {
         val currentTypeWeight = contentTypeWeights.getOrDefault(contentType, 0.0)
         contentTypeWeights[contentType] = (currentTypeWeight + multiplier).coerceIn(-10.0, 10.0)
         
+        // Update studio / author weights. These were loaded, saved and cleared
+        // but never actually written: AnimeContent carried no studio or author
+        // data, so `studioWeights` stayed permanently empty and contributed
+        // nothing to ranking. MAL returns both, and now the model does too.
+        for (creator in content.studios + content.authors) {
+            val currentCreatorWeight = studioWeights.getOrDefault(creator, 0.0)
+            studioWeights[creator] = (currentCreatorWeight + multiplier).coerceIn(-10.0, 10.0)
+        }
+        
         savePreferences()
     }
     
@@ -139,8 +148,9 @@ class UserPreferenceModel(context: Context) {
             com.animerec.app.models.ContentType.NOVEL -> "novels"
         }
         
-        // Also we need to get the weight based on the upper case name saved previously if possible,
-        // Wait, earlier I saved "ANIME", "MANGA", "NOVEL"
+        // contentTypeWeights is keyed by the enum name (upper case), which is
+        // what updatePreferencesFromInteraction writes; `contentType` above is
+        // the lower-case API spelling used for the user-preference check.
         val weightKey = when (content.type) {
             com.animerec.app.models.ContentType.ANIME -> "ANIME"
             com.animerec.app.models.ContentType.MANGA -> "MANGA"
@@ -149,6 +159,11 @@ class UserPreferenceModel(context: Context) {
         score += contentTypeWeights.getOrDefault(weightKey, 0.0)
         if (contentType in user.contentPreferences) {
             score += 3.0
+        }
+        
+        // Studio / author affinity, learned from past interactions.
+        for (creator in content.studios + content.authors) {
+            score += studioWeights.getOrDefault(creator, 0.0) * 0.5
         }
         
         // MAL score bonus (normalized to 0-2 range)
@@ -166,6 +181,9 @@ class UserPreferenceModel(context: Context) {
      * Get the current weight for a specific genre (used by tests and debug UI).
      */
     fun getWeight(genre: String): Double = genreWeights[genre] ?: 0.0
+
+    /** Current learned weight for a studio or author (used by tests and debug UI). */
+    fun getCreatorWeight(creator: String): Double = studioWeights[creator] ?: 0.0
 
     /**
      * Get the user's top preferred genres.
