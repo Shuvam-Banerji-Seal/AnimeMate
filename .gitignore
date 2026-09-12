@@ -26,3 +26,10 @@ Thumbs.db
 # APKs (keep releases in GitHub, not in git tree)
 *.apk
 !AnimeMate-*.apk
+
+# Release signing keys — never commit these.
+# (AnimeMate.keystore, the original v1.0-v1.1.x key, is already tracked from
+# before the 1.1.1 credential split; it stays for history but no new key should
+# ever be added to the repo.)
+AnimeMate-v2.keystore
+*.jks
