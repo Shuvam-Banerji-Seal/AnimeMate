@@ -89,17 +89,20 @@ class AnimeRecApp : Application(), ComponentCallbacks2 {
         super.onCreate()
         Log.d(TAG, "Application initializing")
         
-        // Apply saved theme preference early
+        // Apply the saved theme preference before any Activity is created, so
+        // the delegate has the right night mode to work with from the start.
+        //
+        // MODE_NIGHT_FOLLOW_SYSTEM is passed straight through. It used to be
+        // resolved here into an explicit YES/NO by sampling
+        // resources.configuration once at process start, which broke
+        // follow-system in both directions: the choice was frozen to whatever
+        // the system happened to be at launch, so a later system theme change
+        // (including the automatic day/night schedule) did nothing until the
+        // app was force-stopped. AppCompatDelegate already tracks the system
+        // setting correctly when told to follow it.
         val themePrefs = getSharedPreferences("theme_prefs", Context.MODE_PRIVATE)
         val nightMode = themePrefs.getInt("night_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
-        // If not explicit, force MODE_NIGHT_NO or YES so it's applied definitively instead of waiting for system default
-        val actualNightMode = if (nightMode == AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM) {
-            val isSystemDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-            if (isSystemDark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
-        } else {
-            nightMode
-        }
-        AppCompatDelegate.setDefaultNightMode(actualNightMode)
+        AppCompatDelegate.setDefaultNightMode(nightMode)
         
         // Install automatic crash logger — writes stack traces to files/logs/
         ErrorLogManager.installCrashHandler(this)

@@ -109,7 +109,27 @@ class OAuthCallbackActivity : Activity() {
         }
 
         // Verify the CSRF state BEFORE doing anything else.
-        val secureStorage = SecureStorage(this)
+        //
+        // SecureStorage's constructor deliberately throws rather than fall
+        // back to cleartext prefs (see 1.1.1 / S4). That makes it a real crash
+        // path in a deep-link entry point the user reaches straight from the
+        // browser, where an uncaught throw looks like "the app crashed after I
+        // logged in". Surface it as an auth error instead.
+        val secureStorage = try {
+            SecureStorage(this)
+        } catch (e: Exception) {
+            Log.e(TAG, "SecureStorage unavailable during OAuth callback", e)
+            com.animerec.app.util.ErrorLogManager.logEvent(
+                TAG,
+                "ERROR",
+                "SecureStorage unavailable in callback: ${e.javaClass.simpleName} ${e.message}"
+            )
+            finishWithError(
+                "secure_storage_unavailable",
+                "Secure storage is unavailable on this device, so the login could not be saved."
+            )
+            return
+        }
         val expectedState = secureStorage.getString(LoginFragment.STATE_KEY)
         if (expectedState.isNullOrEmpty() || expectedState != state) {
             Log.w(TAG, "State mismatch: expected=$expectedState actual=$state")

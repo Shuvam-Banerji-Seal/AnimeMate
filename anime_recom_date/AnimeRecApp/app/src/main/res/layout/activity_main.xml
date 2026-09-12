@@ -3,9 +3,27 @@
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
     tools:context=".ui.MainActivity">
+
+    <!--
+        Painted behind the status bar. Its height is set from the top window
+        inset at runtime (see MainActivity.applyWindowInsets), which replaces
+        the deprecated window.statusBarColor — a no-op on Android 15 for apps
+        targeting SDK 35.
+    -->
+    <View
+        android:id="@+id/status_bar_scrim"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@color/status_bar_light"
+        tools:ignore="UnusedAttribute"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <androidx.fragment.app.FragmentContainerView
         android:id="@+id/nav_host_fragment"
@@ -16,7 +34,7 @@
         app:layout_constraintBottom_toTopOf="@+id/bottom_navigation"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/status_bar_scrim"
         app:navGraph="@navigation/nav_graph" />
 
     <com.google.android.material.bottomnavigation.BottomNavigationView

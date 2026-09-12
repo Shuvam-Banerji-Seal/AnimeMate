@@ -11,12 +11,16 @@
 package com.animerec.app.ui
 
 import android.content.Intent
+import android.content.res.Configuration
+import android.util.TypedValue
 import android.os.Bundle
 import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavController
 import androidx.navigation.NavOptions
@@ -46,49 +50,97 @@ class MainActivity : AppCompatActivity() {
     /** Suppresses bottom nav listener from triggering navigation during programmatic selection */
     private var suppressBottomNavListener = false
 
-    private fun syncSystemBarColors() {
-        val typedValue = android.util.TypedValue()
-        
-        // Status bar
-        theme.resolveAttribute(android.R.attr.statusBarColor, typedValue, true)
-        window.statusBarColor = typedValue.data
-        
-        // Nav bar
-        theme.resolveAttribute(android.R.attr.navigationBarColor, typedValue, true)
-        window.navigationBarColor = typedValue.data
-        
-        // Icons (light/dark)
-        val themePrefs = getSharedPreferences("theme_prefs", android.content.Context.MODE_PRIVATE)
-        val savedNightMode = themePrefs.getInt("night_mode", androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
-        val isNightMode = if (savedNightMode == androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM) {
-            resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
-        } else {
-            savedNightMode == androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
-        }
+    /**
+     * Match the system-bar icon tint to the theme actually in effect.
+     *
+     * Reads the **resolved** configuration rather than the saved preference:
+     * on "follow system" the preference holds MODE_NIGHT_FOLLOW_SYSTEM, which
+     * says nothing about what is on screen. `resources.configuration` is
+     * authoritative, and by the time this runs (after super.onCreate)
+     * AppCompat has applied the delegate's night mode to it.
+     */
+    private fun syncSystemBarIconAppearance() {
+        val isNight = resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        ErrorLogManager.logEvent(TAG, "THEME", "Resolved night mode at startup: $isNight")
+
+        // Both themes use a dark status bar and a dark bottom nav, so the
+        // icons stay light in either mode.
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = !isNightMode
-            isAppearanceLightNavigationBars = !isNightMode
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
         }
     }
 
+    /**
+     * Lay the app out edge-to-edge and pay the system-bar insets back as
+     * padding.
+     *
+     * Replaces a `setDecorFitsSystemWindows(window, true)` call that ran
+     * *before* `super.onCreate()`, plus a `decorView.post { requestApplyInsets() }`
+     * hack that tried to make it stick. Neither was reliable, and on Android 15
+     * neither does anything at all: apps targeting SDK 35 are laid out
+     * edge-to-edge unconditionally, and `setDecorFitsSystemWindows(true)`,
+     * `statusBarColor` and `navigationBarColor` are no-ops. Since nothing in
+     * the app consumed window insets, content rendered underneath the status
+     * bar and the gesture bar — the broken-on-fresh-launch UI this app has
+     * shipped with since 1.0.
+     *
+     * Opting in to edge-to-edge on every API level, instead of only where the
+     * platform forces it, keeps this to one code path.
+     */
+    private fun applyWindowInsets() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        val root: View = findViewById(R.id.root)
+        val statusScrim: View = findViewById(R.id.status_bar_scrim)
+
+        // Single source of truth for the bar colour: the theme's own
+        // android:statusBarColor, which values/ and values-night/ already
+        // define. Safe to resolve here because super.onCreate has run.
+        val barColor = TypedValue().let { tv ->
+            if (theme.resolveAttribute(android.R.attr.statusBarColor, tv, true)) tv.data else null
+        }
+        if (barColor != null) statusScrim.setBackgroundColor(barColor)
+
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, windowInsets ->
+            val bars = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+
+            // Horizontal insets matter in landscape and on cutout devices.
+            root.setPadding(bars.left, 0, bars.right, 0)
+
+            // A scrim sized to the status bar preserves the themed bar colour
+            // that `window.statusBarColor` used to provide.
+            if (statusScrim.layoutParams.height != bars.top) {
+                statusScrim.layoutParams = statusScrim.layoutParams.apply { height = bars.top }
+            }
+
+            // Let the bottom nav's own background extend behind the gesture
+            // bar rather than leaving a strip of bare window background.
+            bottomNav.setPadding(0, 0, 0, bars.bottom)
+
+            // Returned unconsumed: child screens (e.g. search, which needs the
+            // IME inset) still have to see these.
+            windowInsets
+        }
+
+        ViewCompat.requestApplyInsets(root)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Ensure content does not draw behind the status bar
-        WindowCompat.setDecorFitsSystemWindows(window, true)
-
-        // Sync system bars with applied theme 
-        syncSystemBarColors()
-
+        // super.onCreate FIRST — nothing may touch getWindow(), getTheme() or
+        // getResources() before it. AppCompatActivity bootstraps its delegate
+        // from an OnContextAvailableListener that ComponentActivity dispatches
+        // *inside* super.onCreate(); that is where installViewFactory() and
+        // delegate.onCreate() -> applyDayNight() run. Resolving the theme or
+        // forcing the decor to be installed ahead of that leaves the window
+        // half-configured against the pre-night-mode state — which is why the
+        // UI came up wrong on a cold start and only looked right once a theme
+        // toggle forced a recreate.
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-        // Fix cold-start spacing bug: force the system to re-dispatch window
-        // insets after the first layout pass so the UI lays out correctly on
-        // the very first frame.  This avoids toggling setDecorFitsSystemWindows
-        // (which triggers an activity recreation and crash-loops the splash).
-        window.decorView.post {
-            window.decorView.requestLayout()
-            window.decorView.requestApplyInsets()
-        }
 
         // Initialize view model
         authViewModel = ViewModelProvider(this)[AuthViewModel::class.java]
@@ -116,6 +168,10 @@ class MainActivity : AppCompatActivity() {
         // because the nav graph's startDestination is splashFragment which gets popped,
         // causing setupWithNavController's internal popUpTo to fail silently)
         bottomNav = findViewById(R.id.bottom_navigation)
+
+        // Content view and bottomNav now exist, so we can take over insets.
+        applyWindowInsets()
+        syncSystemBarIconAppearance()
 
         bottomNav.setOnItemSelectedListener { item ->
             if (suppressBottomNavListener) return@setOnItemSelectedListener true

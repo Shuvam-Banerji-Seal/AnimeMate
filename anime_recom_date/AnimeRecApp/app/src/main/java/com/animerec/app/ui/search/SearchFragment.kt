@@ -23,6 +23,9 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.getSystemService
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.fragment.findNavController
@@ -75,6 +78,19 @@ class SearchFragment : Fragment(), SearchAdapter.OnResultActionListener {
         adapter = SearchAdapter(requireContext(), this)
         resultsRecyclerView?.layoutManager = LinearLayoutManager(requireContext())
         resultsRecyclerView?.adapter = adapter
+
+        // Keep the last results reachable while the keyboard is up. The
+        // activity is laid out edge-to-edge, so the IME arrives as an inset
+        // rather than by shrinking the window; pad the list by it instead of
+        // letting the keyboard sit on top of the final rows.
+        resultsRecyclerView?.let { list ->
+            val basePadding = list.paddingBottom
+            ViewCompat.setOnApplyWindowInsetsListener(list) { view, insets ->
+                val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                view.updatePadding(bottom = basePadding + ime)
+                insets
+            }
+        }
 
         queryWatcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
