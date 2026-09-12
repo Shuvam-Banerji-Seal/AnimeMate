@@ -37,9 +37,12 @@
     <!-- Home Screen -->
     <string name="no_recommendations">No recommendations available.\nTry adjusting your preferences.</string>
     <string name="anime_cover">Anime cover image</string>
+    <string name="undo">Undo</string>
+    <string name="undo_last_swipe">Undo last swipe</string>
     
     <!-- Navigation -->
     <string name="nav_home">Home</string>
+    <string name="nav_search">Search</string>
     <string name="nav_watchlist">Watchlist</string>
     <string name="nav_history">History</string>
     <string name="nav_profile">Profile</string>
@@ -66,6 +69,15 @@
     <string name="on_hold">On Hold</string>
     <string name="dropped">Dropped</string>
     <string name="plan_to_watch">Plan to Watch</string>
+    
+    <!-- Search -->
+    <string name="search_hint">Search anime, manga or novels</string>
+    <string name="search_prompt">Type at least 3 characters to search MyAnimeList.</string>
+    <string name="search_no_results">No matches. Try a different spelling or scope.</string>
+    <string name="scope_all">All</string>
+    <string name="scope_anime">Anime</string>
+    <string name="scope_manga">Manga</string>
+    <string name="scope_novels">Novels</string>
     
     <!-- Errors -->
     <string name="error_loading">Error loading content</string>

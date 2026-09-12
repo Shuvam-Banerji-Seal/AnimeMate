@@ -32,6 +32,7 @@ import com.yuyakaido.android.cardstackview.CardStackListener
 import com.yuyakaido.android.cardstackview.CardStackView
 import com.yuyakaido.android.cardstackview.Direction
 import com.yuyakaido.android.cardstackview.Duration
+import com.yuyakaido.android.cardstackview.RewindAnimationSetting
 import com.yuyakaido.android.cardstackview.StackFrom
 import com.yuyakaido.android.cardstackview.SwipeAnimationSetting
 
@@ -47,6 +48,7 @@ class HomeFragment : Fragment(), CardStackListener {
     private var loadingIndicator: ProgressBar? = null
     private var emptyStateText: TextView? = null
     private var mediaFilterChipGroup: ChipGroup? = null
+    private var undoButton: View? = null
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +71,7 @@ class HomeFragment : Fragment(), CardStackListener {
         loadingIndicator = view.findViewById(R.id.loading_indicator)
         emptyStateText = view.findViewById(R.id.empty_state_text)
         mediaFilterChipGroup = view.findViewById(R.id.media_filter_chip_group)
+        undoButton = view.findViewById(R.id.undo_button)
         
         // Set up media format filter chips
         mediaFilterChipGroup?.setOnCheckedStateChangeListener { _, checkedIds ->
@@ -123,6 +126,7 @@ class HomeFragment : Fragment(), CardStackListener {
                         // Check if we should show the tutorial
                         showSwipeTutorialIfNeeded()
                     }
+                    updateUndoVisibility()
                 }
                 is Resource.Error -> {
                     showLoading(false)
@@ -163,6 +167,29 @@ class HomeFragment : Fragment(), CardStackListener {
             }
         }
         
+        // When the list is replaced rather than appended (filter switch,
+        // refresh, first load), the layout manager's topPosition still points
+        // into the *old* list. Left alone, the stack shows the wrong card and
+        // the next swipe records against the wrong item.
+        viewModel.resetStackPosition.observe(viewLifecycleOwner) {
+            layoutManager?.topPosition = 0
+            cardStackView?.scrollToPosition(0)
+        }
+
+        // Undo the last swipe
+        undoButton?.setOnClickListener { viewModel.undoLastSwipe() }
+
+        viewModel.undoAvailable.observe(viewLifecycleOwner) { updateUndoVisibility() }
+
+        viewModel.undoEvent.observe(viewLifecycleOwner) { message ->
+            rewindCard()
+            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+        }
+
+        viewModel.message.observe(viewLifecycleOwner) { message ->
+            Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
+        }
+
         // Load initial recommendations
         viewModel.loadRecommendations()
     }
@@ -191,6 +218,23 @@ class HomeFragment : Fragment(), CardStackListener {
         }
     }
     
+    /**
+     * Animate the last-swiped card back onto the stack.
+     */
+    private fun rewindCard() {
+        val setting = RewindAnimationSetting.Builder()
+            .setDirection(Direction.Bottom)
+            .setDuration(Duration.Normal.duration)
+            .build()
+        layoutManager?.setRewindAnimationSetting(setting)
+        cardStackView?.rewind()
+    }
+
+    private fun updateUndoVisibility() {
+        val canUndo = viewModel.undoAvailable.value == true && (adapter?.itemCount ?: 0) > 0
+        undoButton?.visibility = if (canUndo) View.VISIBLE else View.GONE
+    }
+
     /**
      * Perform a swipe in the given direction.
      */
@@ -296,6 +340,7 @@ class HomeFragment : Fragment(), CardStackListener {
         loadingIndicator = null
         emptyStateText = null
         mediaFilterChipGroup = null
+        undoButton = null
         super.onDestroyView()
     }
 }

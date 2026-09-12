@@ -105,6 +105,16 @@
         tools:layout="@layout/fragment_mal_stats" />
 
     <fragment
+        android:id="@+id/searchFragment"
+        android:name="com.animerec.app.ui.search.SearchFragment"
+        android:label="Search"
+        tools:layout="@layout/fragment_search">
+        <action
+            android:id="@+id/action_searchFragment_to_detailsFragment"
+            app:destination="@id/detailsFragment" />
+    </fragment>
+
+    <fragment
         android:id="@+id/watchlistFragment"
         android:name="com.animerec.app.ui.watchlist.WatchlistFragment"
         android:label="Watchlist"

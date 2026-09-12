@@ -21,6 +21,7 @@ import com.animerec.app.api.response.UserAnimeListResponse
 import com.animerec.app.api.response.UserMangaListResponse
 import com.animerec.app.api.response.UserProfileResponse
 import retrofit2.Response
+import retrofit2.http.DELETE
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
@@ -166,4 +167,16 @@ interface MyAnimeListService {
         @Field("tags") tags: String? = null,
         @Field("comments") comments: String? = null
     ): Response<Any>
+    
+    // Remove Anime from List (undo an accidental add)
+    @DELETE("anime/{anime_id}/my_list_status")
+    suspend fun deleteAnimeListStatus(
+        @Path("anime_id") animeId: Int
+    ): Response<Unit>
+    
+    // Remove Manga from List (undo an accidental add)
+    @DELETE("manga/{manga_id}/my_list_status")
+    suspend fun deleteMangaListStatus(
+        @Path("manga_id") mangaId: Int
+    ): Response<Unit>
 }

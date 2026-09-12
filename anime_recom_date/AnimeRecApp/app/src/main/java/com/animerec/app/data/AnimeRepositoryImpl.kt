@@ -111,10 +111,11 @@ class AnimeRepositoryImpl(
         }
     }
     
-    override suspend fun searchAnime(query: String): Resource<List<AnimeContent>> {
+    override suspend fun searchAnime(query: String, limit: Int): Resource<List<AnimeContent>> {
         return try {
             val response = apiClient.service.searchAnime(
                 query = query,
+                limit = limit,
                 fields = AnimeRecApp.ANIME_FIELDS
             )
             
@@ -131,10 +132,11 @@ class AnimeRepositoryImpl(
         }
     }
     
-    override suspend fun searchManga(query: String): Resource<List<AnimeContent>> {
+    override suspend fun searchManga(query: String, limit: Int): Resource<List<AnimeContent>> {
         return try {
             val response = apiClient.service.searchManga(
                 query = query,
+                limit = limit,
                 fields = AnimeRecApp.MANGA_FIELDS
             )
             
@@ -402,12 +404,54 @@ class AnimeRepositoryImpl(
         }
     }
     
-    override suspend fun markAsNotInterested(contentId: Int): Resource<Boolean> {
+    override suspend fun removeAnimeFromList(animeId: Int): Resource<Boolean> =
+        removeFromList("anime", animeId) { apiClient.service.deleteAnimeListStatus(animeId) }
+
+    override suspend fun removeMangaFromList(mangaId: Int): Resource<Boolean> =
+        removeFromList("manga", mangaId) { apiClient.service.deleteMangaListStatus(mangaId) }
+
+    private suspend fun removeFromList(
+        kind: String,
+        id: Int,
+        call: suspend () -> retrofit2.Response<Unit>
+    ): Resource<Boolean> {
         return try {
-            val notInterestedIds = getNotInterestedIdsFromStorage().toMutableList()
-            if (contentId !in notInterestedIds) {
-                notInterestedIds.add(contentId)
-                saveNotInterestedIds(notInterestedIds)
+            val response = call()
+            // 404 means "already not on the list", which is the state we want.
+            if (response.isSuccessful || response.code() == 404) {
+                Resource.Success(true)
+            } else {
+                ErrorLogManager.logEvent(TAG, "ERROR", "Remove $kind $id from list: HTTP ${response.code()}")
+                Resource.Error("Failed to remove from list: ${response.message()}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing $kind $id from list", e)
+            ErrorLogManager.logEvent(TAG, "ERROR", "Remove $kind from list: ${e.message}")
+            Resource.Error(e.message ?: "Unknown error")
+        }
+    }
+
+    override suspend fun unmarkAsNotInterested(contentId: Int, type: ContentType): Resource<Boolean> {
+        return try {
+            val key = "${type.idNamespace}:$contentId"
+            val keys = getNotInterestedKeysFromStorage().toMutableSet()
+            if (keys.remove(key)) {
+                saveNotInterestedKeys(keys)
+            }
+            Resource.Success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error unmarking as not interested", e)
+            ErrorLogManager.logEvent(TAG, "ERROR", "Unmark not interested: ${e.message}")
+            Resource.Error(e.message ?: "Unknown error")
+        }
+    }
+
+    override suspend fun markAsNotInterested(contentId: Int, type: ContentType): Resource<Boolean> {
+        return try {
+            val key = "${type.idNamespace}:$contentId"
+            val keys = getNotInterestedKeysFromStorage().toMutableSet()
+            if (keys.add(key)) {
+                saveNotInterestedKeys(keys)
             }
             Resource.Success(true)
         } catch (e: Exception) {
@@ -417,12 +461,17 @@ class AnimeRepositoryImpl(
         }
     }
     
-    override suspend fun getNotInterestedIds(): Resource<List<Int>> {
+    override suspend fun getNotInterestedContentKeys(): Resource<NotInterestedKeys> {
         return try {
-            Resource.Success(getNotInterestedIdsFromStorage())
+            Resource.Success(
+                NotInterestedKeys(
+                    typedKeys = getNotInterestedKeysFromStorage(),
+                    legacyIds = getLegacyNotInterestedIdsFromStorage()
+                )
+            )
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting not interested IDs", e)
-            ErrorLogManager.logEvent(TAG, "ERROR", "Not interested IDs: ${e.message}")
+            Log.e(TAG, "Error getting not interested keys", e)
+            ErrorLogManager.logEvent(TAG, "ERROR", "Not interested keys: ${e.message}")
             Resource.Error(e.message ?: "Unknown error")
         }
     }
@@ -548,21 +597,47 @@ class AnimeRepositoryImpl(
         }
     }
     
-    private fun getNotInterestedIdsFromStorage(): List<Int> {
-        val json = prefs.getString("not_interested_ids", null)
-        return if (json != null) {
-            try {
-                val type = object : TypeToken<List<Int>>() {}.type
-                gson.fromJson(json, type)
-            } catch (e: Exception) {
-                emptyList()
-            }
-        } else {
-            emptyList()
+    /**
+     * Namespaced not-interested keys, e.g. "a:1535" (anime) or "m:1535" (manga).
+     */
+    private fun getNotInterestedKeysFromStorage(): Set<String> {
+        val json = prefs.getString(KEY_NOT_INTERESTED_KEYS, null) ?: return emptySet()
+        return try {
+            val type = object : TypeToken<Set<String>>() {}.type
+            gson.fromJson<Set<String>>(json, type) ?: emptySet()
+        } catch (e: Exception) {
+            Log.w(TAG, "Corrupt not-interested keys, ignoring", e)
+            emptySet()
         }
     }
     
-    private fun saveNotInterestedIds(ids: List<Int>) {
-        prefs.edit().putString("not_interested_ids", gson.toJson(ids)).apply()
+    private fun saveNotInterestedKeys(keys: Set<String>) {
+        prefs.edit().putString(KEY_NOT_INTERESTED_KEYS, gson.toJson(keys)).apply()
+    }
+    
+    /**
+     * Not-interested IDs written before entries carried a content type.
+     *
+     * These are kept as-is rather than migrated: an untyped ID can't be
+     * assigned to a namespace after the fact without guessing, and guessing
+     * wrong would either resurrect content the user rejected or hide content
+     * they never saw. Callers match them against both namespaces, which is
+     * precisely the behaviour these entries already had. Nothing new is ever
+     * written here, so the set only shrinks in relevance over time.
+     */
+    private fun getLegacyNotInterestedIdsFromStorage(): Set<Int> {
+        val json = prefs.getString(KEY_NOT_INTERESTED_LEGACY_IDS, null) ?: return emptySet()
+        return try {
+            val type = object : TypeToken<List<Int>>() {}.type
+            gson.fromJson<List<Int>>(json, type)?.toSet() ?: emptySet()
+        } catch (e: Exception) {
+            Log.w(TAG, "Corrupt legacy not-interested IDs, ignoring", e)
+            emptySet()
+        }
+    }
+    
+    private companion object {
+        const val KEY_NOT_INTERESTED_KEYS = "not_interested_keys"
+        const val KEY_NOT_INTERESTED_LEGACY_IDS = "not_interested_ids"
     }
 }

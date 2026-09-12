@@ -24,6 +24,8 @@ import com.animerec.app.recommendation.RecommendationEngine
 import com.animerec.app.recommendation.RecommendationMetrics
 import com.animerec.app.recommendation.RecommendationSource
 import com.animerec.app.util.ErrorLogManager
+import com.animerec.app.util.SingleLiveEvent
+import java.util.Collections
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -48,18 +50,59 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
     private val _recommendations = MutableLiveData<Resource<List<AnimeContent>>>()
     val recommendations: LiveData<Resource<List<AnimeContent>>> = _recommendations
     
-    // Keep track of pagination
-    private var isLoading = false
-    private var hasMoreData = true
+    // Pagination state. @Volatile because these are written from
+    // Dispatchers.Default coroutines and read from the main thread.
+    @Volatile private var isLoading = false
+
+    /**
+     * Set when the engine has no *more* content to append. It only ever gates
+     * [loadMoreRecommendations] — never the initial load or a refresh.
+     *
+     * It used to gate those too, which permanently bricked the feed: one round
+     * of all-duplicate results latched it to false, after which
+     * [loadRecommendations] returned immediately and "Refresh" did nothing for
+     * the rest of the process's life.
+     */
+    @Volatile private var exhausted = false
     
-    // For background recommendation fetching
+    // For background recommendation fetching. Synchronized because the
+    // prefetch coroutine appends while the main thread drains it.
     private var prefetchJob: Job? = null
-    private val prefetchedRecommendations = mutableListOf<AnimeContent>()
+    private val prefetchedRecommendations = Collections.synchronizedList(mutableListOf<AnimeContent>())
     
     // Current media type filter (null = all)
     private var currentMediaFilter: String? = null
     // Unfiltered backing list for client-side filtering
-    private var allRecommendations: List<AnimeContent> = emptyList()
+    @Volatile private var allRecommendations: List<AnimeContent> = emptyList()
+
+    /**
+     * Emitted when the emitted list is a *replacement* rather than an append,
+     * so the card stack knows to reset to the top card. Without this the
+     * layout manager keeps its old `topPosition` and the next swipe acts on
+     * whatever item now happens to sit at that index.
+     */
+    private val _resetStackPosition = SingleLiveEvent<Unit>()
+    val resetStackPosition: LiveData<Unit> = _resetStackPosition
+
+    // ── Undo ────────────────────────────────────────────────────────────
+    /** The last swipe, retained so it can be reversed. Null once undone. */
+    @Volatile private var lastSwipe: Swipe? = null
+
+    private val _undoAvailable = MutableLiveData(false)
+    val undoAvailable: LiveData<Boolean> = _undoAvailable
+
+    /** Fires once per successful undo, carrying the message to show. */
+    private val _undoEvent = SingleLiveEvent<String>()
+    val undoEvent: LiveData<String> = _undoEvent
+
+    /** One-off user-facing messages that are not tied to the list state. */
+    private val _message = SingleLiveEvent<String>()
+    val message: LiveData<String> = _message
+
+    private data class Swipe(
+        val content: AnimeContent,
+        val interaction: RecommendationEngine.InteractionType
+    )
     
     init {
         // Start background prefetching of recommendations
@@ -70,14 +113,14 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
      * Load initial recommendations.
      */
     fun loadRecommendations() {
-        if (isLoading || !hasMoreData) return
+        if (isLoading) return
         
         // If we have prefetched recommendations, use them
-        if (prefetchedRecommendations.isNotEmpty()) {
-            val recommendations = prefetchedRecommendations.toList()
-            prefetchedRecommendations.clear()
-            allRecommendations = recommendations
-            _recommendations.postValue(Resource.Success(applyMediaFilter(recommendations)))
+        val prefetched = drainPrefetched()
+        if (prefetched.isNotEmpty()) {
+            allRecommendations = prefetched
+            exhausted = false
+            emitReplacement(applyMediaFilter(prefetched))
             
             // Start prefetching more in the background
             startPrefetching()
@@ -105,12 +148,11 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
                 
                 if (recommendationsResource is Resource.Success) {
                     allRecommendations = recommendationsResource.data
-                    _recommendations.postValue(Resource.Success(applyMediaFilter(recommendationsResource.data)))
+                    exhausted = recommendationsResource.data.isEmpty()
+                    emitReplacement(applyMediaFilter(recommendationsResource.data))
                 } else {
                     _recommendations.postValue(recommendationsResource)
                 }
-                hasMoreData = (recommendationsResource is Resource.Success) && 
-                             (recommendationsResource.data.isNotEmpty())
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading recommendations", e)
                 ErrorLogManager.logEvent(TAG, "ERROR", "Error loading recommendations: ${e.message}")
@@ -133,7 +175,7 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
         
         if (allRecommendations.isEmpty()) {
             // No data yet — load fresh recommendations
-            hasMoreData = true
+            exhausted = false
             loadRecommendations()
             return
         }
@@ -147,7 +189,9 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
         } else if (filtered.isEmpty()) {
             _recommendations.postValue(Resource.Error("No content found. Try a different filter."))
         } else {
-            _recommendations.postValue(Resource.Success(filtered))
+            // A filter switch swaps in a different list, so the stack must
+            // restart from the top card.
+            emitReplacement(filtered)
         }
     }
     
@@ -175,11 +219,12 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
                 
                 if (result is Resource.Success && result.data.isNotEmpty()) {
                     // Merge into the backing list so switching back to "All" includes them
-                    val existingIds = allRecommendations.map { it.id }.toSet()
-                    val unique = result.data.filter { it.id !in existingIds }
+                    val existingKeys = allRecommendations.map { it.contentKey }.toSet()
+                    val unique = result.data.filter { it.contentKey !in existingKeys }
                     allRecommendations = allRecommendations + unique
+                    exhausted = false
                     
-                    _recommendations.postValue(Resource.Success(result.data))
+                    emitReplacement(applyMediaFilter(allRecommendations))
                 } else if (result is Resource.Success) {
                     _recommendations.postValue(Resource.Error("No $contentType content available right now."))
                 } else if (result is Resource.Error) {
@@ -213,18 +258,16 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
      * Load more recommendations.
      */
     fun loadMoreRecommendations() {
-        if (isLoading || !hasMoreData) return
+        if (isLoading || exhausted) return
         
         // If we have prefetched recommendations, use them
-        if (prefetchedRecommendations.isNotEmpty()) {
-            val currentValue = _recommendations.value
-            if (currentValue is Resource.Success) {
-                val additionalRecommendations = prefetchedRecommendations.toList()
-                prefetchedRecommendations.clear()
-                
-                allRecommendations = allRecommendations + additionalRecommendations
-                val filtered = applyMediaFilter(allRecommendations)
-                _recommendations.postValue(Resource.Success(filtered))
+        if (_recommendations.value is Resource.Success) {
+            val additional = drainPrefetched()
+            if (additional.isNotEmpty()) {
+                val existingKeys = allRecommendations.map { it.contentKey }.toSet()
+                allRecommendations = allRecommendations +
+                    additional.filter { it.contentKey !in existingKeys }
+                _recommendations.postValue(Resource.Success(applyMediaFilter(allRecommendations)))
                 
                 // Start prefetching more in the background
                 startPrefetching()
@@ -254,16 +297,16 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
                     val newRecommendations = newRecommendationsResource.data
                     
                     // De-duplicate against the full (unfiltered) list
-                    val existingIds = allRecommendations.map { it.id }.toSet()
-                    val uniqueNewRecommendations = newRecommendations.filter { it.id !in existingIds }
+                    val existingKeys = allRecommendations.map { it.contentKey }.toSet()
+                    val uniqueNewRecommendations = newRecommendations.filter { it.contentKey !in existingKeys }
                     
                     // Store in unfiltered backing list
                     allRecommendations = allRecommendations + uniqueNewRecommendations
                     
-                    // Apply current filter and emit
-                    val filteredList = applyMediaFilter(allRecommendations)
-                    _recommendations.postValue(Resource.Success(filteredList))
-                    hasMoreData = uniqueNewRecommendations.isNotEmpty()
+                    // Apply current filter and emit — this is an append, so the
+                    // stack keeps its position.
+                    _recommendations.postValue(Resource.Success(applyMediaFilter(allRecommendations)))
+                    exhausted = uniqueNewRecommendations.isEmpty()
                 } else if (newRecommendationsResource is Resource.Error) {
                     Log.e(TAG, "Error loading more recommendations: ${newRecommendationsResource.message}")
                     ErrorLogManager.logEvent(TAG, "ERROR", "Error loading more: ${newRecommendationsResource.message}")
@@ -283,8 +326,9 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
     fun recordInteraction(content: AnimeContent, interactionType: RecommendationEngine.InteractionType) {
         viewModelScope.launch {
             try {
-                // Record in recommendation engine
-                recommendationEngine.recordInteraction(content.id, interactionType)
+                // Record in recommendation engine (local preference model only —
+                // the MAL write belongs to the caller)
+                recommendationEngine.recordInteraction(content, interactionType)
                 
                 // Record in metrics
                 metrics.recordInteraction(
@@ -310,6 +354,7 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
      * Records a LIKE interaction AND updates the MAL list status.
      */
     fun addToWatchlist(content: AnimeContent) {
+        rememberSwipe(content, RecommendationEngine.InteractionType.LIKE)
         recordInteraction(content, RecommendationEngine.InteractionType.LIKE)
         viewModelScope.launch {
             try {
@@ -329,10 +374,11 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
      * Records a DISLIKE interaction AND stores the "not interested" flag.
      */
     fun markAsNotInterested(content: AnimeContent) {
+        rememberSwipe(content, RecommendationEngine.InteractionType.DISLIKE)
         recordInteraction(content, RecommendationEngine.InteractionType.DISLIKE)
         viewModelScope.launch {
             try {
-                repository.markAsNotInterested(content.id)
+                repository.markAsNotInterested(content.id, content.type)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to mark as not interested", e)
                 ErrorLogManager.logEvent(TAG, "ERROR", "Not-interested failed: ${e.message}")
@@ -345,6 +391,7 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
      * Records a SUPER_LIKE interaction AND sets the MAL status to completed.
      */
     fun markAsWatched(content: AnimeContent) {
+        rememberSwipe(content, RecommendationEngine.InteractionType.SUPER_LIKE)
         recordInteraction(content, RecommendationEngine.InteractionType.SUPER_LIKE)
         viewModelScope.launch {
             try {
@@ -363,7 +410,65 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
      * Show details when swiped down.
      */
     fun showDetails(content: AnimeContent) {
+        // Viewing details writes nothing to MAL, so there is nothing to undo.
+        lastSwipe = null
+        _undoAvailable.postValue(false)
         recordInteraction(content, RecommendationEngine.InteractionType.VIEW_DETAILS)
+    }
+
+    private fun rememberSwipe(content: AnimeContent, interaction: RecommendationEngine.InteractionType) {
+        lastSwipe = Swipe(content, interaction)
+        _undoAvailable.postValue(true)
+    }
+
+    /**
+     * Reverse the most recent swipe.
+     *
+     * Swipes write straight through to the user's real MyAnimeList account, so
+     * a mis-swipe used to be permanent and only fixable on the MAL website.
+     * Undo reverses the remote write first and only reports success if that
+     * write actually landed — otherwise the card would rewind while the user's
+     * list still held the bogus entry.
+     */
+    fun undoLastSwipe() {
+        val swipe = lastSwipe ?: return
+        lastSwipe = null
+        _undoAvailable.postValue(false)
+
+        viewModelScope.launch {
+            val content = swipe.content
+            val result: Resource<Boolean> = try {
+                when (swipe.interaction) {
+                    RecommendationEngine.InteractionType.LIKE,
+                    RecommendationEngine.InteractionType.SUPER_LIKE ->
+                        when (content.type) {
+                            ContentType.ANIME -> repository.removeAnimeFromList(content.id)
+                            ContentType.MANGA, ContentType.NOVEL -> repository.removeMangaFromList(content.id)
+                        }
+
+                    RecommendationEngine.InteractionType.DISLIKE ->
+                        repository.unmarkAsNotInterested(content.id, content.type)
+
+                    RecommendationEngine.InteractionType.VIEW_DETAILS ->
+                        Resource.Success(true)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Undo failed", e)
+                ErrorLogManager.logEvent(TAG, "ERROR", "Undo failed: ${e.message}")
+                Resource.Error(e.message ?: "Unknown error")
+            }
+
+            if (result is Resource.Success) {
+                ErrorLogManager.logEvent(TAG, "UNDO", "Undid ${swipe.interaction} on ${content.contentKey}")
+                _undoEvent.postValue("Undid \"${content.title}\"")
+            } else {
+                // The remote write is still in place, so keep the undo offer up
+                // rather than silently pretending it worked.
+                lastSwipe = swipe
+                _undoAvailable.postValue(true)
+                _message.postValue("Couldn't undo — check your connection and try again.")
+            }
+        }
     }
     
     /**
@@ -373,6 +478,11 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             try {
                 recommendationEngine.clearCache()
+                // Drop the stale pool and the exhausted flag, otherwise a
+                // refresh re-emits exactly what the user just ran out of.
+                allRecommendations = emptyList()
+                prefetchedRecommendations.clear()
+                exhausted = false
                 loadRecommendations()
             } catch (e: Exception) {
                 Log.e(TAG, "Error refreshing recommendations", e)
@@ -408,12 +518,16 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
                 val recommendationsResource = recommendationEngine.getRecommendations(user, 10)
                 
                 if (recommendationsResource is Resource.Success) {
-                    val recommendations = recommendationsResource.data
-                    
-                    // Add to prefetched list, avoiding duplicates
-                    val prefetchCurrentValue = _recommendations.value
-                    val currentIds = if (prefetchCurrentValue is Resource.Success) prefetchCurrentValue.data.map { it.id } else emptyList()
-                    val uniqueRecommendations = recommendations.filter { it.id !in currentIds }
+                    // Add to prefetched list, avoiding duplicates. Dedupe
+                    // against the full backing pool rather than only the
+                    // currently-visible (possibly filtered) list, so a
+                    // filtered view doesn't let already-known items back in.
+                    val knownKeys = allRecommendations.map { it.contentKey }.toSet() +
+                        synchronized(prefetchedRecommendations) {
+                            prefetchedRecommendations.map { it.contentKey }
+                        }
+                    val uniqueRecommendations = recommendationsResource.data
+                        .filter { it.contentKey !in knownKeys }
                     
                     prefetchedRecommendations.addAll(uniqueRecommendations)
                 }
@@ -435,6 +549,34 @@ class RecommendationViewModel(application: Application) : AndroidViewModel(appli
         return sources[randomIndex]
     }
     
+    /**
+     * Atomically take everything buffered by the prefetcher.
+     *
+     * The old code did `isNotEmpty()` → `toList()` → `clear()` as three
+     * separate steps on an unsynchronized ArrayList that a background
+     * coroutine was appending to, which could drop a prefetch batch or throw
+     * ConcurrentModificationException mid-iteration.
+     */
+    private fun drainPrefetched(): List<AnimeContent> =
+        synchronized(prefetchedRecommendations) {
+            if (prefetchedRecommendations.isEmpty()) {
+                emptyList()
+            } else {
+                val taken = prefetchedRecommendations.toList()
+                prefetchedRecommendations.clear()
+                taken
+            }
+        }
+
+    /**
+     * Emit a list that *replaces* the current stack contents, signalling the
+     * fragment to reset the card stack to position 0.
+     */
+    private fun emitReplacement(list: List<AnimeContent>) {
+        _recommendations.postValue(Resource.Success(list))
+        _resetStackPosition.postValue(Unit)
+    }
+
     override fun onCleared() {
         super.onCleared()
         prefetchJob?.cancel()

@@ -2,6 +2,140 @@
 
 All notable changes to AnimeMate will be documented in this file.
 
+## [1.2.0] - 2026-09-12
+
+### Content identity — anime and manga IDs no longer collide
+
+MyAnimeList keeps **separate ID spaces** for anime and manga: anime 1535 is
+*Death Note*, manga 1535 is *Boys Next Door*. The app treated a bare `id` as a
+unique identifier everywhere, so the two namespaces were constantly mistaken
+for each other.
+
+- **`AnimeContent.contentKey`** (`models/AnimeContent.kt`) — a namespaced key
+  (`"a:1535"` / `"m:1535"`). Light novels share the manga namespace, because
+  MAL serves them from the manga endpoint. Every dedupe, exclusion and DiffUtil
+  comparison now keys on this.
+- **Exclusion set was hiding most of the catalogue** (`BasicRecommendationEngine`)
+  — the "already seen" filter was `notInterestedIds + userAnimeIds +
+  userMangaIds` union'd into one flat `Set<Int>`. A user with 400 completed
+  anime was therefore also blocking 400 *arbitrary manga* from ever appearing,
+  and vice versa. The bigger the user's MAL list, the more of the catalogue
+  silently vanished. Replaced with a namespaced `ExclusionSet`.
+- **Candidate dedupe dropped legitimate content** — `candidatePool.distinctBy
+  { it.id }` ran over a mixed anime+manga pool, so any manga whose ID matched an
+  anime already in the pool was discarded before ranking. Same bug in the
+  exploitation/exploration split and the diversity second pass.
+- **Not-interested entries are now stored typed** (`not_interested_keys`).
+  Pre-existing untyped entries (`not_interested_ids`) are kept and still matched
+  against both namespaces — their namespace can't be recovered after the fact,
+  and guessing would either resurrect rejected content or hide content the user
+  never saw. Nothing new is written to the legacy key.
+
+### Interactions — wrong-content writes and duplicate API calls
+
+- **Swiping on a manga wrote a random anime to your MAL list.**
+  `recordInteraction(contentId, type)` re-fetched the item with
+  `repository.getAnimeDetails(contentId)` regardless of the content's actual
+  type. For a manga ID that returns whatever unrelated *anime* holds that
+  number — which the engine then trained the preference model on and pushed to
+  the user's anime list. `recordInteraction` now takes the full `AnimeContent`
+  and performs no lookup at all.
+- **Every swipe fired two MAL writes.** The ViewModel updated list status and
+  then called `recordInteraction`, which updated it again. The engine no longer
+  performs any MyAnimeList write — callers own their own status updates. Halves
+  the PATCH traffic per swipe.
+- **"Similar content" for manga was a list of random anime** —
+  `getSimilarContent` looked the seed item up via `getAnimeDetails` for every
+  content type. It now takes a `ContentType` and queries the right endpoint.
+- **`recommendationCache.clear()` ran outside `cacheLock`** in the DISLIKE path,
+  racing concurrent reads of the same map that `synchronized` was introduced to
+  protect in 1.1.1.
+
+### Home feed
+
+- **The feed could permanently brick itself.** `hasMoreData` gated
+  `loadRecommendations()` as well as `loadMoreRecommendations()`. One round of
+  all-duplicate results latched it to `false`, after which the initial load
+  returned immediately and **"Refresh" did nothing for the rest of the
+  process's life** — the user was left with a dead card stack. Split into an
+  `exhausted` flag that only gates pagination; refresh now also clears the
+  stale pool and prefetch buffer.
+- **Swipes could act on the wrong card.** Switching the media filter replaced
+  the adapter's list while `CardStackLayoutManager.topPosition` kept pointing
+  into the *old* list, so the visible card and the item the swipe recorded
+  against were different entries. List replacements now emit a reset event and
+  the stack returns to the top card.
+- **Prefetch buffer was not thread-safe** — a plain `ArrayList` appended from a
+  background coroutine while the main thread did a non-atomic
+  `isNotEmpty()`/`toList()`/`clear()`. Now a synchronized list drained in one
+  atomic step. `isLoading`, `exhausted` and `allRecommendations` are `@Volatile`
+  (they're written from `Dispatchers.Default` and read from the main thread).
+- **Prefetch deduped against the visible list**, not the full pool, so items
+  already known could be re-added whenever a filter was active.
+
+### New: Search
+
+The MAL search endpoints were wired all the way through `MyAnimeListService`
+and `AnimeRepository` but had **no UI in front of them** — the only way to
+reach a title was to wait for the swipe feed to surface it.
+
+- New **Search tab** in the bottom navigation (`SearchFragment` +
+  `SearchViewModel` + `SearchAdapter`).
+- Scope chips: All / Anime / Manga / Novels. "All" queries both endpoints in
+  parallel and interleaves the results so neither kind buries the other.
+- 350 ms debounce, and the in-flight request is cancelled when the query
+  changes — MAL rate-limits aggressively, and without cancellation a slow early
+  response could overwrite a later one. Queries under 3 characters are not sent
+  (MAL rejects them).
+- Tap a result for full details; the bookmark button adds it straight to your
+  plan-to-watch / plan-to-read list.
+
+### New: Undo a swipe
+
+Swipes write directly to the user's real MyAnimeList account, so a mis-swipe
+was permanent and only fixable on the MAL website.
+
+- **Undo button** on the home screen, shown only when there's something to undo.
+- Reverses the actual remote write first — `DELETE
+  /v2/{anime,manga}/{id}/my_list_status` for a right/up swipe, removing the
+  not-interested entry for a left swipe — and only rewinds the card if that
+  write succeeded. A failed undo keeps the offer up instead of pretending it
+  worked.
+- New `removeAnimeFromList` / `removeMangaFromList` / `unmarkAsNotInterested`
+  repository methods. A 404 from MAL counts as success: "not on the list" is
+  the desired end state.
+
+### Other
+
+- **`SingleLiveEvent`** (`util/`) for one-shot UI events. Plain `LiveData`
+  re-delivers its last value to every new observer, so a rotation would replay
+  the last undo — firing the toast and rewinding the stack a second time.
+- `DetailsViewModel.updateStatus("dropped")` now records not-interested
+  explicitly, since the engine no longer writes to the repository.
+- `versionCode 9`, `versionName "1.2.0"`.
+
+### Tests
+
+**87 tests, 77 passing, 10 skipped, 0 failing** (was 70 passing).
+
+- `ContentKeyTest` (5) — namespacing, light novels sharing the manga space,
+  and `distinctBy { contentKey }` keeping colliding IDs from different
+  namespaces.
+- `RecordInteractionTest` (11) — no re-fetch by ID, no MAL write from the
+  engine, preference model trained on the passed-in item, type-correct
+  `getSimilarContent` endpoint, a manga on the read list not excluding the
+  anime with the same ID, an anime on the watch list still excluded, and both
+  legacy-untyped and typed not-interested behaviour.
+
+### Known limitations
+
+- Search has no pagination — the first 25 results per endpoint only.
+- Undo holds a single step; there is no multi-level undo stack.
+- Release APK signing still requires `local.properties` credentials or the
+  `ANIMEMATE_*` env vars (unchanged since 1.1.1).
+
+---
+
 ## [1.1.1] - 2026-06-13
 
 ### Security fixes (from third-party deep audit)

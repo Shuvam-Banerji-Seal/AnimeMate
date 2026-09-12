@@ -71,7 +71,7 @@ class DetailsFragment : Fragment() {
             val contentTypeStr = arguments?.getString("contentType") ?: ContentType.ANIME.name
             val contentType = ContentType.valueOf(contentTypeStr)
             viewModel.loadContentDetails(contentId, contentType)
-            viewModel.loadSimilarContent(contentId)
+            viewModel.loadSimilarContent(contentId, contentType)
         }
     }
     

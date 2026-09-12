@@ -55,10 +55,12 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
                 _contentDetails.value = result
                 
                 // Record the interaction for recommendation engine
-                recommendationEngine.recordInteraction(
-                    contentId, 
-                    RecommendationEngine.InteractionType.VIEW_DETAILS
-                )
+                if (result is Resource.Success) {
+                    recommendationEngine.recordInteraction(
+                        result.data,
+                        RecommendationEngine.InteractionType.VIEW_DETAILS
+                    )
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading content details", e)
                 ErrorLogManager.logEvent(TAG, "ERROR", "Details load failed: ${e.message}")
@@ -70,10 +72,10 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
     /**
      * Load similar content recommendations.
      */
-    fun loadSimilarContent(contentId: Int) {
+    fun loadSimilarContent(contentId: Int, contentType: ContentType) {
         viewModelScope.launch {
             try {
-                val result = recommendationEngine.getSimilarContent(contentId, 10)
+                val result = recommendationEngine.getSimilarContent(contentId, contentType, 10)
                 _similarContent.value = result
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading similar content", e)
@@ -103,7 +105,14 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
                         else -> RecommendationEngine.InteractionType.LIKE
                     }
                     
-                    recommendationEngine.recordInteraction(content.id, interactionType)
+                    recommendationEngine.recordInteraction(content, interactionType)
+                    
+                    // Dropping something is an explicit "stop showing me this".
+                    // The engine no longer writes to the repository itself, so
+                    // record it here where the intent is unambiguous.
+                    if (newStatus == "dropped") {
+                        repository.markAsNotInterested(content.id, content.type)
+                    }
                     
                     // Refresh content details
                     loadContentDetails(content.id, content.type)
@@ -134,7 +143,7 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
                         else -> RecommendationEngine.InteractionType.DISLIKE
                     }
                     
-                    recommendationEngine.recordInteraction(content.id, interactionType)
+                    recommendationEngine.recordInteraction(content, interactionType)
                     
                     // Refresh content details
                     loadContentDetails(content.id, content.type)

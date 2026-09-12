@@ -12,6 +12,7 @@ package com.animerec.app.recommendation
 
 import com.animerec.app.data.Resource
 import com.animerec.app.models.AnimeContent
+import com.animerec.app.models.ContentType
 import com.animerec.app.models.User
 
 /**
@@ -43,19 +44,39 @@ interface RecommendationEngine {
     
     /**
      * Get similar content to a given item.
+     *
+     * [contentType] is required because MAL namespaces anime and manga IDs
+     * separately — looking a manga ID up against the anime endpoint returns
+     * an unrelated work (or a 404).
+     *
      * @param contentId The ID of the content to find similar items for
+     * @param contentType The type of the content the ID belongs to
      * @param limit The maximum number of similar items to return
      * @return A Resource containing a list of similar content
      */
-    suspend fun getSimilarContent(contentId: Int, limit: Int = 10): Resource<List<AnimeContent>>
+    suspend fun getSimilarContent(
+        contentId: Int,
+        contentType: ContentType,
+        limit: Int = 10
+    ): Resource<List<AnimeContent>>
     
     /**
-     * Record a user's interaction with a piece of content.
-     * @param contentId The ID of the content
+     * Record a user's interaction with a piece of content so future rankings
+     * reflect it.
+     *
+     * This updates the local preference model only — it performs **no**
+     * MyAnimeList writes. Callers own their own list/status updates, so
+     * writing here too would issue a duplicate PATCH for every swipe.
+     *
+     * Takes the full [AnimeContent] rather than a bare ID: the engine needs
+     * the item's genres and type, and re-fetching them by ID is both a wasted
+     * round-trip and wrong for manga (see [getSimilarContent]).
+     *
+     * @param content The content the user interacted with
      * @param interactionType The type of interaction (like, dislike, watched, etc.)
      * @return A Resource indicating success or failure
      */
-    suspend fun recordInteraction(contentId: Int, interactionType: InteractionType): Resource<Boolean>
+    suspend fun recordInteraction(content: AnimeContent, interactionType: InteractionType): Resource<Boolean>
     
     /**
      * Types of interactions a user can have with content

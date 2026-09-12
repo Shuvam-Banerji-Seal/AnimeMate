@@ -102,6 +102,7 @@ class MainActivity : AppCompatActivity() {
         appBarConfiguration = AppBarConfiguration(
             setOf(
                 R.id.homeFragment,
+                R.id.searchFragment,
                 R.id.profileFragment,
                 R.id.watchlistFragment,
                 R.id.historyFragment
@@ -170,6 +171,7 @@ class MainActivity : AppCompatActivity() {
             // Keep bottom nav selection in sync with navigation
             val navItemId = when (destination.id) {
                 R.id.homeFragment -> R.id.homeFragment
+                R.id.searchFragment -> R.id.searchFragment
                 R.id.watchlistFragment -> R.id.watchlistFragment
                 R.id.historyFragment -> R.id.historyFragment
                 R.id.profileFragment, R.id.preferencesFragment, R.id.malStatsFragment -> R.id.profileFragment

@@ -36,10 +36,26 @@ data class AnimeContent(
     val startDate: String? = null,
     val endDate: String? = null,
     val numEpisodes: Int? = null
-)
+) {
+    /**
+     * Namespaced identity for this item.
+     *
+     * MyAnimeList keeps **separate** ID spaces for anime and manga, so a bare
+     * `id` is ambiguous: anime 1535 (Death Note) and manga 1535 (Boys Next
+     * Door) are different works that share a number. Anything that dedupes,
+     * excludes or diffs content must key on this instead of `id`, otherwise a
+     * manga on the user's read list silently suppresses an unrelated anime
+     * from their recommendations (and vice versa).
+     *
+     * Light novels live in the manga ID space on MAL, so NOVEL shares the
+     * MANGA namespace.
+     */
+    val contentKey: String
+        get() = "${type.idNamespace}:$id"
+}
 
-enum class ContentType {
-    ANIME,
-    MANGA,
-    NOVEL
+enum class ContentType(val idNamespace: String) {
+    ANIME("a"),
+    MANGA("m"),
+    NOVEL("m") // light novels share MAL's manga ID space
 }

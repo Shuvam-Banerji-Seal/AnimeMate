@@ -12,6 +12,7 @@ package com.animerec.app.recommendation
 
 import android.util.Log
 import com.animerec.app.data.AnimeRepository
+import com.animerec.app.data.NotInterestedKeys
 import com.animerec.app.data.Resource
 import com.animerec.app.models.AnimeContent
 import com.animerec.app.models.ContentType
@@ -135,18 +136,11 @@ class BasicRecommendationEngine(
             }
             
             // ── Step 2: Remove duplicates and already-seen / not-interested ──
-            val notInterestedIds = (repository.getNotInterestedIds() as? Resource.Success)?.data ?: emptyList()
-
-            // Fetch user's existing anime/manga lists to exclude already-watched content
-            val userAnimeIds = (repository.getUserAnimeList(null) as? Resource.Success)
-                ?.data?.map { it.id }?.toSet() ?: emptySet()
-            val userMangaIds = (repository.getUserMangaList(null) as? Resource.Success)
-                ?.data?.map { it.id }?.toSet() ?: emptySet()
-            val exclusionSet = notInterestedIds.toSet() + userAnimeIds + userMangaIds
+            val exclusion = buildExclusionSet()
 
             val uniqueCandidates = candidatePool
-                .distinctBy { it.id }
-                .filter { it.id !in exclusionSet }
+                .distinctBy { it.contentKey }
+                .filter { !exclusion.excludes(it) }
             
             // ── Step 3: Twitter-style ranking ──
             val scored = uniqueCandidates.map { content ->
@@ -162,8 +156,8 @@ class BasicRecommendationEngine(
             val exploitationPicks = rankedPool.take(exploitationCount)
             
             // Exploration: random sample from remaining (excluding exploitation picks)
-            val exploitationIds = exploitationPicks.map { it.id }.toSet()
-            val explorationPool = rankedPool.filter { it.id !in exploitationIds }
+            val exploitationIds = exploitationPicks.map { it.contentKey }.toSet()
+            val explorationPool = rankedPool.filter { it.contentKey !in exploitationIds }
             val explorationPicks = if (explorationPool.size > explorationCount) {
                 explorationPool.shuffled(Random(System.nanoTime())).take(explorationCount)
             } else {
@@ -288,10 +282,10 @@ class BasicRecommendationEngine(
         // If the first pass yielded fewer than `limit` items because every
         // candidate was blocked by the cap, we relax the cap and add anyway.
         if (result.size < limit) {
-            val resultIds = result.map { it.id }.toSet()
+            val resultIds = result.map { it.contentKey }.toSet()
             for (item in items) {
                 if (result.size >= limit) break
-                if (item.id !in resultIds) {
+                if (item.contentKey !in resultIds) {
                     result.add(item)
                 }
             }
@@ -389,8 +383,8 @@ class BasicRecommendationEngine(
                 allItems.addAll(suggestionsDeferred.await())
             }
             
-            // De-duplicate
-            val uniqueItems = allItems.distinctBy { it.id }
+            // De-duplicate (by namespaced key — anime and manga IDs collide)
+            val uniqueItems = allItems.distinctBy { it.contentKey }
             
             // Filter by genres if provided
             val filtered = if (genres.isNotEmpty()) {
@@ -403,13 +397,8 @@ class BasicRecommendationEngine(
             }
             
             // Filter out not-interested and already-watched
-            val notInterestedIds = (repository.getNotInterestedIds() as? Resource.Success)?.data ?: emptyList()
-            val userAnimeIds = (repository.getUserAnimeList(null) as? Resource.Success)
-                ?.data?.map { it.id }?.toSet() ?: emptySet()
-            val userMangaIds = (repository.getUserMangaList(null) as? Resource.Success)
-                ?.data?.map { it.id }?.toSet() ?: emptySet()
-            val exclusionSet = notInterestedIds.toSet() + userAnimeIds + userMangaIds
-            val cleanList = filtered.filter { it.id !in exclusionSet }
+            val exclusion = buildExclusionSet()
+            val cleanList = filtered.filter { !exclusion.excludes(it) }
             
             val limitedList = cleanList.take(limit)
             addToCache(cacheKey, limitedList)
@@ -424,16 +413,23 @@ class BasicRecommendationEngine(
     
     override suspend fun getSimilarContent(
         contentId: Int,
+        contentType: ContentType,
         limit: Int
     ): Resource<List<AnimeContent>> = withContext(Dispatchers.IO) {
         try {
-            val cacheKey = "similar_${contentId}_$limit"
+            val cacheKey = "similar_${contentType.idNamespace}_${contentId}_$limit"
             val cachedRecommendations = getFromCache(cacheKey)
             if (cachedRecommendations != null) {
                 return@withContext Resource.Success(cachedRecommendations)
             }
             
-            val contentResource = repository.getAnimeDetails(contentId)
+            // Look the seed item up in ITS OWN ID space. Using the anime
+            // endpoint for a manga ID returns an unrelated work, which used to
+            // make "similar content" for manga a list of random anime.
+            val contentResource = when (contentType) {
+                ContentType.ANIME -> repository.getAnimeDetails(contentId)
+                ContentType.MANGA, ContentType.NOVEL -> repository.getMangaDetails(contentId)
+            }
             
             if (contentResource is Resource.Success) {
                 val content = contentResource.data
@@ -446,7 +442,7 @@ class BasicRecommendationEngine(
                 
                 if (similarResource is Resource.Success) {
                     val filteredContent = similarResource.data
-                        .filter { it.id != contentId }
+                        .filter { it.contentKey != content.contentKey }
                         .sortedByDescending { calculateSimilarity(content, it) }
                         .take(limit)
                     
@@ -467,56 +463,47 @@ class BasicRecommendationEngine(
         }
     }
     
+    /**
+     * Record an interaction so future rankings reflect it.
+     *
+     * Deliberately does **no** network work:
+     *  - It no longer re-fetches the item by ID. That lookup always went to
+     *    the *anime* endpoint, so for a manga or light novel it trained the
+     *    preference model on whatever unrelated anime happened to share that
+     *    number — and then wrote that anime to the user's MAL list.
+     *  - It no longer updates MAL list status. Every caller already performs
+     *    its own status update, so doing it here fired a second, duplicate
+     *    PATCH for every single swipe.
+     */
     override suspend fun recordInteraction(
-        contentId: Int,
+        content: AnimeContent,
         interactionType: RecommendationEngine.InteractionType
-    ): Resource<Boolean> = withContext(Dispatchers.IO) {
+    ): Resource<Boolean> = withContext(Dispatchers.Default) {
         try {
-            val contentResource = repository.getAnimeDetails(contentId)
-            
-            if (contentResource !is Resource.Success) {
-                return@withContext Resource.Error("Failed to get content details")
-            }
-            
-            val content = contentResource.data
-            
             when (interactionType) {
-                RecommendationEngine.InteractionType.LIKE -> {
-                    val status = when (content.type) {
-                        ContentType.ANIME -> "plan_to_watch"
-                        ContentType.MANGA, ContentType.NOVEL -> "plan_to_read"
-                    }
-                    val result = when (content.type) {
-                        ContentType.ANIME -> repository.updateAnimeStatus(contentId, status)
-                        ContentType.MANGA, ContentType.NOVEL -> repository.updateMangaStatus(contentId, status)
-                    }
+                RecommendationEngine.InteractionType.LIKE ->
                     userPreferenceModel.updatePreferencesFromInteraction(content, true)
-                    return@withContext result
-                }
-                RecommendationEngine.InteractionType.DISLIKE -> {
-                    val result = repository.markAsNotInterested(contentId)
-                    userPreferenceModel.updatePreferencesFromInteraction(content, false)
-                    // Clear recommendation cache so disliked genres are deprioritised immediately
-                    recommendationCache.clear()
-                    return@withContext result
-                }
-                RecommendationEngine.InteractionType.SUPER_LIKE -> {
-                    val result = when (content.type) {
-                        ContentType.ANIME -> repository.updateAnimeStatus(contentId, "completed")
-                        ContentType.MANGA, ContentType.NOVEL -> repository.updateMangaStatus(contentId, "completed")
-                    }
+
+                RecommendationEngine.InteractionType.SUPER_LIKE ->
                     userPreferenceModel.updatePreferencesFromInteraction(content, true, weight = 2.0)
-                    return@withContext result
-                }
-                RecommendationEngine.InteractionType.VIEW_DETAILS -> {
+
+                RecommendationEngine.InteractionType.VIEW_DETAILS ->
                     userPreferenceModel.updatePreferencesFromInteraction(content, true, weight = 0.5)
-                    return@withContext Resource.Success(true)
+
+                RecommendationEngine.InteractionType.DISLIKE -> {
+                    userPreferenceModel.updatePreferencesFromInteraction(content, false)
+                    // Drop cached rankings so the newly disliked genres are
+                    // deprioritised on the next fetch. Must hold cacheLock —
+                    // the previous unguarded clear() could race a concurrent
+                    // get/put and corrupt the map.
+                    synchronized(cacheLock) { recommendationCache.clear() }
                 }
             }
+            Resource.Success(true)
         } catch (e: Exception) {
-            Log.e(TAG, "Error recording interaction for ID $contentId", e)
-            ErrorLogManager.logEvent(TAG, "ERROR", "Interaction for ID=$contentId failed: ${e.message}")
-            return@withContext Resource.Error("Error recording interaction: ${e.message}")
+            Log.e(TAG, "Error recording interaction for ${content.contentKey}", e)
+            ErrorLogManager.logEvent(TAG, "ERROR", "Interaction for ${content.contentKey} failed: ${e.message}")
+            Resource.Error("Error recording interaction: ${e.message}")
         }
     }
     
@@ -578,5 +565,43 @@ class BasicRecommendationEngine(
         synchronized(cacheLock) {
             recommendationCache[key] = Pair(recommendations, System.currentTimeMillis())
         }
+    }
+
+    /**
+     * Items the user should never be shown again, keyed by [AnimeContent.contentKey].
+     *
+     * Previously this was a flat `Set<Int>` built by union-ing the user's anime
+     * IDs, manga IDs and not-interested IDs. Because MAL numbers anime and
+     * manga independently, a user with 400 completed anime was also silently
+     * blocking 400 arbitrary manga (and vice versa) — the larger the user's
+     * list, the more of the catalogue disappeared from their feed.
+     */
+    private class ExclusionSet(
+        private val keys: Set<String>,
+        /**
+         * Not-interested IDs recorded before the app stored a content type
+         * alongside them. Their namespace is unknown, so they're matched on
+         * bare ID against both — exactly the (over-broad) behaviour these
+         * entries already had when they were written.
+         */
+        private val legacyUntypedIds: Set<Int>
+    ) {
+        fun excludes(content: AnimeContent): Boolean =
+            content.contentKey in keys || content.id in legacyUntypedIds
+    }
+
+    private suspend fun buildExclusionSet(): ExclusionSet {
+        val notInterested = (repository.getNotInterestedContentKeys() as? Resource.Success)?.data
+            ?: NotInterestedKeys()
+
+        val userAnimeKeys = (repository.getUserAnimeList(null) as? Resource.Success)
+            ?.data?.map { it.contentKey }?.toSet() ?: emptySet()
+        val userMangaKeys = (repository.getUserMangaList(null) as? Resource.Success)
+            ?.data?.map { it.contentKey }?.toSet() ?: emptySet()
+
+        return ExclusionSet(
+            keys = notInterested.typedKeys + userAnimeKeys + userMangaKeys,
+            legacyUntypedIds = notInterested.legacyIds
+        )
     }
 }

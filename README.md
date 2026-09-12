@@ -3,7 +3,7 @@
 **Author:** Shuvam Banerji Seal 
 **License:** MIT
 **Website:** [shuvam-banerji-seal.github.io/AnimeMate](https://shuvam-banerji-seal.github.io/AnimeMate)
-**Version:** 1.1.6
+**Version:** 1.2.0
 **Build:** [![Build APK](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml/badge.svg)](https://github.com/Shuvam-Banerji-Seal/AnimeMate/actions/workflows/pages.yml)
 
 > A dating-style swipe interface for discovering your next favourite anime, manga or light novel — powered by MyAnimeList and a Twitter/X-inspired recommendation engine.
@@ -11,6 +11,54 @@
 AnimeMate is a native Android app that helps users discover content through a fun, card-based swipe interface. It connects to the [MyAnimeList](https://myanimelist.net/) API v2 to fetch personalised recommendations, manage watchlists, track history, and view detailed statistics — all within a polished Material Design 3 interface that supports both light and dark themes.
 
 ---
+
+## What's New in 1.2.0
+
+**Anime and manga IDs no longer collide.** MyAnimeList numbers anime and manga
+in separate ID spaces — anime 1535 is *Death Note*, manga 1535 is *Boys Next
+Door* — but the app treated a bare `id` as a unique identifier everywhere. The
+consequences were real and user-visible:
+
+- The "already seen" filter union'd your anime IDs, manga IDs and
+  not-interested IDs into one flat `Set<Int>`, so **a user with 400 completed
+  anime was also silently blocking 400 arbitrary manga** from ever appearing
+  (and vice versa). The longer your MAL list, the more of the catalogue
+  disappeared.
+- **Swiping right on a manga added a random *anime* to your MAL list.**
+  `recordInteraction` re-fetched every item with `getAnimeDetails(id)`
+  regardless of its actual type, then wrote a list status based on whatever
+  unrelated anime shared that number.
+- "Similar content" for any manga was a list of unrelated anime, for the same
+  reason.
+
+Every dedupe, exclusion and diff now keys on a namespaced `AnimeContent.contentKey`.
+
+**Two more fixes you'd have hit:**
+
+- **The feed could permanently brick itself.** One round of all-duplicate
+  results latched `hasMoreData` to `false`, after which the initial load
+  early-returned and *Refresh did nothing for the rest of the process's life*.
+- **Swipes could act on the wrong card** — switching the media filter swapped
+  the list while the card stack kept its old position, so the card you saw and
+  the item your swipe recorded against were different entries.
+
+Plus: every swipe fired **two** MAL writes (the ViewModel wrote, then the engine
+wrote again); the engine no longer performs any MyAnimeList write at all.
+
+### New: Search
+
+The MAL search endpoints were implemented all the way through the service and
+repository but had **no UI in front of them**. There's now a Search tab —
+All / Anime / Manga / Novels scopes, debounced as you type, tap through to
+details or bookmark straight to your list.
+
+### New: Undo a swipe
+
+Swipes write straight to your real MyAnimeList account, so a mis-swipe used to
+be permanent and only fixable on the MAL website. The Undo button reverses the
+actual remote write first and only rewinds the card if that write succeeded.
+
+**87 tests, 77 passing, 10 skipped, 0 failing.**
 
 ## What's New in 1.1.6
 
@@ -89,6 +137,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full history.
 | Swipe **LEFT** | Mark as not interested |
 | Swipe **UP** | Mark as watched / completed |
 | Swipe **DOWN** | View full details — synopsis, stats, similar content |
+| **Undo** button | Reverse the last swipe, including the MyAnimeList write |
 
 ### Twitter/X-Style Recommendation Engine
 - **Engagement prediction** — user interaction history weights
@@ -196,6 +245,7 @@ See also:
 | Tab | Purpose |
 |-----|---------|
 | **Home** | Swipe through recommendations |
+| **Search** | Look up any anime, manga or light novel by title |
 | **Watchlist** | View & manage plan-to-watch / plan-to-read items |
 | **History** | Browse completed, on-hold, dropped items |
 | **Profile** | Stats, preferences, dark mode, log out |
@@ -223,6 +273,7 @@ com.animerec.app
 │   ├── history/         # HistoryFragment + HistoryViewModel
 │   ├── home/            # HomeFragment (CardStackView) + RecommendationViewModel
 │   ├── profile/         # ProfileFragment, MalStatsFragment, PreferencesFragment
+│   ├── search/          # SearchFragment + SearchViewModel + SearchAdapter
 │   └── watchlist/       # WatchlistFragment + WatchlistViewModel
 ├── util/                # ErrorLogManager, connectivity helpers
 ├── utils/               # SecureStorage (EncryptedSharedPreferences)
@@ -235,6 +286,8 @@ com.animerec.app
 - **Repository** — `AnimeRepository` interface with `AnimeRepositoryImpl`
 - **Navigation** — Jetpack Navigation Component with SafeArgs
 - **Theming** — Explicit Light/Dark `Theme.Material3` parents (no `DayNight` mixing)
+- **Content identity** — `AnimeContent.contentKey` namespaces IDs by type, because MAL numbers anime and manga independently
+- **One-shot UI events** — `SingleLiveEvent` for toasts / undo, so a rotation doesn't replay them
 - **Memory safety** — Nullable view references with `onDestroyView()` cleanup in all fragments
 - **Error resilience** — `ErrorLogManager` structured logging + `RetryInterceptor` with exponential back-off
 
@@ -279,6 +332,8 @@ The app uses **MyAnimeList API v2** with OAuth 2 PKCE authentication.
 - `GET /v2/users/@me/mangalist` — User's manga list
 - `PATCH /v2/anime/{id}/my_list_status` — Update anime status / rating
 - `PATCH /v2/manga/{id}/my_list_status` — Update manga status / rating
+- `DELETE /v2/anime/{id}/my_list_status` — Remove from list (undo a swipe)
+- `DELETE /v2/manga/{id}/my_list_status` — Remove from list (undo a swipe)
 - `GET /v2/anime/season/{year}/{season}` — Seasonal anime
 - `GET /v2/anime?q=` — Search anime
 - `GET /v2/manga?q=` — Search manga
@@ -326,8 +381,10 @@ cd anime_recom_date/AnimeRecApp
 | `BasicRecommendationEngineTest` | 4 | Diversity cap multi-genre behaviour, soft cap, cache key uses `user.id`, genre-prefs bust cache |
 | `RetryInterceptorTest` | 8 | Idempotent method classification, retryable status codes (429/500/502/503), non-retry of 4xx |
 | `ErrorLogManagerTest` | 2 | Redacted prefs snapshot does NOT contain raw user values (S5) |
+| `ContentKeyTest` | 5 | Anime/manga ID namespacing, light novels sharing the manga space, `distinctBy { contentKey }` keeping colliding IDs |
+| `RecordInteractionTest` | 11 | **Regression tests for the 1.2.0 wrong-namespace bugs**: no re-fetch by ID, no MAL write from the engine, preference model trained on the passed-in item, type-correct `getSimilarContent` endpoint, manga on the read list not excluding the anime with the same ID, typed vs legacy not-interested behaviour |
 
-**Total: 68 passing tests, 7 skipped (require AndroidKeyStore on a real device).**
+**Total: 87 tests — 77 passing, 10 skipped (require AndroidKeyStore on a real device), 0 failing.**
 
 ---
 
