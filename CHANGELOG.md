@@ -127,6 +127,22 @@ was permanent and only fixable on the MAL website.
   anime with the same ID, an anime on the watch list still excluded, and both
   legacy-untyped and typed not-interested behaviour.
 
+### Signing key changed — existing installs must be uninstalled first
+
+Releases up to v1.1.6 were signed with `AnimeMate.keystore`, whose password was
+not recoverable. From v1.2.0 releases are signed with a **newly generated key**
+(`AnimeMate-v2.keystore`, RSA 4096).
+
+Android refuses to install an update signed with a different key, so **anyone
+running v1.1.6 or earlier must uninstall AnimeMate before installing v1.2.0**.
+Your MyAnimeList data is unaffected — watchlist, history and ratings all live
+on MAL's servers and come back when you log in. Only local app state (theme
+choice, genre preferences, not-interested list, swipe tutorial flag) is lost.
+
+The new keystore and its credentials are git-ignored and live only on the
+maintainer's machine; back both up, because losing either means never being
+able to ship a compatible update again.
+
 ### Known limitations
 
 - Search has no pagination — the first 25 results per endpoint only.
